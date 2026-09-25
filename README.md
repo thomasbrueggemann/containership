@@ -12,7 +12,7 @@ fictional port of Westerhaven and put her alongside Berth 4.
 python3 -m http.server 8765
 ```
 
-Then open <http://localhost:8765>. (`index.html` is self-contained; three.js loads from jsDelivr.)
+Run `node build.mjs` first, then open <http://localhost:8765>. (`index.html` is self-contained; three.js loads from jsDelivr.)
 URL options: `?autostart&tod=night&wind=fresh&voice=off&quality=medium`.
 
 ## Build
@@ -22,6 +22,10 @@ The game is authored as modules in `src/` and concatenated into `index.html`:
 ```bash
 node build.mjs
 ```
+
+On every push to `main`, the GitHub Action in `.github/workflows/pages.yml` runs the build,
+syntax-checks the bundle and deploys `index.html` to GitHub Pages. `index.html` is a build
+output and is not committed; run `node build.mjs` locally before serving.
 
 | File | Contents |
 | --- | --- |
