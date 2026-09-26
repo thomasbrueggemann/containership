@@ -30,9 +30,13 @@ const PLAYER = {
       if (this.locked) { this.wantLock = true; this.refusals = 0; this.skipMoves = 2; this.lookX = this.lookY = 0; }   // first deltas after locking are junk
       const ours = this._releasing; this._releasing = false;
       if (this.locked || !was || ours || !G.started) return;
-      // the browser took the mouse back (Esc, or switching windows): Esc closes a display, otherwise pause
+      // The browser took the mouse back: Esc (it never lets a page keep the mouse on Esc) or a window switch.
+      // Esc closes a display or lowers the binoculars; otherwise it only frees the mouse – a second Esc
+      // (now reaching the page) opens the menu. Leaving the window pauses.
+      this.escUnlockT = performance.now();
       if (UI.zoomOpen()) UI.closeZoom();
-      else if (!UI.modalOpen() && !UI.panelOpen()) UI.togglePause(true);
+      else if (this.binos || this.binoHold) { this.binos = this.binoHold = false; }
+      setTimeout(() => { if ((document.hidden || !document.hasFocus()) && G.started && !G.paused && !UI.modalOpen() && !UI.panelOpen()) UI.togglePause(true); }, 80);
     });
     // repeated refusals (e.g. embedded without pointer-lock permission) fall back to drag-to-look;
     // a single refusal is usually Chrome's short cool-down after Esc and is simply retried later
