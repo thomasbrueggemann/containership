@@ -47,7 +47,7 @@ const SAVE = {
       crew: CREW.members.map((c) => ({ id: c.id, present: c.present && !(c.node === 'door' && c.path.length), x: c.x, z: c.z, node: c.node, face: c.face, idleFace: c.idleFace ?? 0, pose: c.pose ?? null, home: c.home,
         task: c.task && c.task.key && !c.task.started ? { spot: c.task.spot, key: c.task.key, arg: c.task.arg, dur: c.task.dur } : null })),
       helm: { steadyTold: !!CREW._steadyTold },
-      player: { x: PLAYER.x, z: PLAYER.z, yaw: PLAYER.yaw, pitch: PLAYER.pitch, mode: G.mode },
+      player: { x: PLAYER.x, z: PLAYER.z, yaw: PLAYER.yaw, pitch: PLAYER.pitch, mode: G.mode, seat: BR.seats.indexOf(PLAYER.seat) },
     });
   },
   save(auto) {
@@ -119,6 +119,7 @@ const SAVE = {
     // own ship wake & player
     G.wake.pts = [];
     const p = snap.player; PLAYER.place(p.x, p.z, p.yaw); PLAYER.pitch = p.pitch;
+    if (BR.seats[p.seat]) PLAYER.sit(BR.seats[p.seat], true);
     if (p.mode === 'orbit') PLAYER.toggleOrbit();
     SPEECH.queue = [];
     UI.refreshTC(); UI.updateMission(true);

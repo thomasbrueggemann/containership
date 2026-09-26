@@ -258,7 +258,7 @@ const SCN = {
     const F = G.flags;
     if (G.pilotCon) { G.pilotCon = false; this.say('pilot', 'Your con, Captain.'); return; }
     if (!(G.steering === 'HAND' && CREW.atHelm())) { this.say('pilot', 'Captain, I need a helmsman on the wheel in hand steering for that.'); return; }
-    G.pilotCon = true; this.conT = 0;
+    G.pilotCon = true; this.conT = 0; this.conTurn = null; this.conCourseT = -99;
     this.say('pilot', 'I have the con, Captain. I\'ll take her to the breakwater.');
   },
   pilotConning(dt) {
@@ -272,23 +272,42 @@ const SCN = {
     const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
     let t = ((s.x - a[0]) * (b[0] - a[0]) + (s.z - a[1]) * (b[1] - a[1])) / (L * L) + 900 / L;
     let px, pz; if (t > 1 && ROUTE[rp.leg + 2]) { const c = ROUTE[rp.leg + 2]; const tt = (t - 1) * L / Math.hypot(c[0] - b[0], c[1] - b[1]); px = lerp(b[0], c[0], Math.min(1, tt)); pz = lerp(b[1], c[1], Math.min(1, tt)); } else { px = lerp(a[0], b[0], Math.min(1, t)); pz = lerp(a[1], b[1], Math.min(1, t)); }
-    const want = wrap360(Math.atan2(px - s.x, -(pz - s.z)) / DEG);
-    const err = wrap180(want - s.psi / DEG);
-    if (this.conT <= 0) {
-      this.conT = 10;
-      let order = clamp(Math.round((err * 1.5 - s.rotDegMin * 1.3) / 5) * 5, -20, 20);
-      if (Math.abs(err) < 1.5 && Math.abs(s.rotDegMin) < 2) order = 0;
-      if (order !== G.helmOrder) {
-        const ph = CREW.helmPhrase(order);
-        this.say('pilot', order === 0 && Math.abs(err) < 2 ? 'Midships… steady ' + pad(want) + '.' : ph + '.');
-        G.helmOrder = order; CREW.helmOrder(order); G.abCourse = null;
+    const want = Math.round(wrap360(Math.atan2(px - s.x, -(pz - s.z)) / DEG));
+    // Like a real pilot: give the helmsman a course to steer and let him keep it. Helm orders only
+    // for a real alteration at a bend ("Port ten… midships… steer 085"), small drifts get a new
+    // course at most every 45 s.
+    const course = G.abCourse, rot = s.rotDegMin;
+    if (this.conTurn != null) {
+      const left = wrap180(this.conTurn - s.psi / DEG);
+      // check her swing early enough – the helmsman meets her with counter-rudder on the new course
+      if (Math.abs(left) < Math.max(4, Math.abs(rot) * 0.35) || Math.sign(left) !== Math.sign(G.helmOrder)) {
+        const c = this.conTurn; this.conTurn = null; this.conCourseT = G.simT;
+        this.say('pilot', 'Midships… steer ' + pad(c) + '.');
+        G.helmOrder = 0; G.abCourse = c; CREW._steadyTold = false;
+        CREW.say('ab', 'Midships, steer ' + pad(c) + ', pilot.');
       }
+    } else {
+      const off = wrap180(want - (course ?? s.psi / DEG));
+      if (course == null || Math.abs(off) >= 8) {
+        if (Math.abs(off) >= 4) {
+          const order = Math.sign(off) * clamp(Math.round(Math.abs(off) / 2.5 / 5) * 5, 10, 20);
+          this.conTurn = want;
+          this.say('pilot', CREW.helmPhrase(order) + '.');
+          G.helmOrder = order; CREW.helmOrder(order, 'pilot'); G.abCourse = null;
+        } else { G.abCourse = want; this.conCourseT = G.simT; this.say('pilot', 'Steer ' + pad(want) + '.'); CREW.say('ab', 'Steer ' + pad(want) + ', pilot.'); }
+      } else if (Math.abs(off) >= 3 && G.simT - (this.conCourseT ?? -99) > 45) {
+        G.abCourse = want; this.conCourseT = G.simT; CREW._steadyTold = true;
+        this.say('pilot', 'Steer ' + pad(want) + '.'); CREW.say('ab', 'Steer ' + pad(want) + ', pilot.');
+      }
+    }
+    if (this.conT <= 0) {
+      this.conT = 25;                         // let her settle before the next telegraph order
       // engine
       const kn = s.sog / KN, target = s.x < -7000 ? 10 : s.x < -4200 ? 8 : 5;
       let tele = s.tele[0];
       if (kn > target + 1.3 && tele > TELEGRAPH_STOP) tele--;
       else if (kn < target - 1.3 && tele < 8) tele++;
-      if (tele !== s.tele[0]) { this.say('pilot', TELEGRAPH[tele].label.toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) + ', please.'); s.tele = [tele, tele]; AUDIO.telegraph(); G.bellBook.unshift({ t: G.simT, txt: TELEGRAPH[tele].label + ' (pilot)' }); CREW.teleAck(TELEGRAPH[tele].label); }
+      if (tele !== s.tele[0]) { this.say('pilot', TELEGRAPH[tele].label.toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) + ', please.'); s.tele = [tele, tele]; AUDIO.telegraph(); G.bellBook.unshift({ t: G.simT, txt: TELEGRAPH[tele].label + ' (pilot)' }); CREW.teleAck(TELEGRAPH[tele].label, 'pilot'); }
     }
   },
   sendLines(st) {

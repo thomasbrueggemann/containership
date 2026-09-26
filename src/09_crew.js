@@ -159,7 +159,7 @@ const SPEECH = {
 const SPOTS = {
   vhf: { node: 'conL', face: 0, pose: 'radio' },       // VHF handset, module 3
   phone: { node: 'pilot', face: 0, pose: 'phone' },    // ECR telephone, module 4
-  radarL: { node: 'radarL', face: 0, pose: 'console' }, radarR: { node: 'radarR', face: 0, pose: 'console' },
+  radarL: { node: 'radarL', face: 0, pose: 'console', seat: 'navL' }, radarR: { node: 'radarR', face: 0, pose: 'console', seat: 'navR' },   // sit down if the chair is free
   ecdL: { node: 'ecdL', face: 0, pose: 'console' }, ecdR: { node: 'ecdR', face: 0, pose: 'console' },
   steer: { node: 'apL', face: 0, pose: 'press' },      // steering mode / autopilot / nav lights
   engine: { node: 'tele', face: 0, pose: 'press' },    // engine mode buttons & telegraphs
@@ -182,6 +182,7 @@ class CrewMember {
     this.face = 0; this.targetFace = 0; this.path = []; this.state = 'idle';
     this.walkPh = Math.random() * 6; this.talkT = 0; this.present = true; this.idleT = Math.random() * 10;
     this.task = null; this.ambientT = 25 + Math.random() * 40;
+    this.seat = null; this.sitK = 0; this.waitT = 0; this.ghostT = 0;
     this.group.position.set(x, 0, z);
     G.bridgeGroup.add(this.group);
     // handset / walkie-talkie shown in the right hand while on the radio or phone
@@ -196,11 +197,20 @@ class CrewMember {
     this.hit = hit;
   }
   goTo(node, cb) {
+    this.standUp();
     const path = CREW.findPath(this.nearestNode(), node);
     this.path = path.map((n) => BR.nodes[n].slice());
     this.node = node; this.onArrive = cb; this.state = 'walk';
   }
   nearestNode() { let b = null, bd = 1e9; for (const k in BR.nodes) { const [x, z] = BR.nodes[k]; const d = Math.hypot(x - this.x, z - this.z); if (d < bd) { bd = d; b = k; } } return b; }
+  // take / leave a chair (the body blends between standing at the node and sitting on the cushion)
+  sitDown(id) {
+    const s = BR.seats.find((q) => q.id === id);
+    if (!s || s.by) return false;
+    s.by = this.id; this.seat = this.lastSeat = s;
+    return true;
+  }
+  standUp() { if (this.seat) { if (this.seat.by === this.id) this.seat.by = null; this.seat = null; } }
   leave(cb) { this.task = null; this.goTo('door', () => { this.present = false; this.group.visible = false; this.hit.visible = false; cb && cb(); }); }
   enter(node, cb) { this.present = true; this.group.visible = true; this.hit.visible = true; const [x, z] = BR.nodes.door; this.x = x; this.z = z + 0.8; this.goTo(node, cb); }
   // usual place & posture when nothing else to do
@@ -222,23 +232,69 @@ class CrewMember {
       if (this.task !== t) return;
       t.started = true; t.left = t.dur;
       this.idleFace = sp.face; this.pose = sp.pose;
+      if (sp.seat) this.sitDown(sp.seat);
       if (t.key) CREW.ACTIONS[t.key](this, t.arg);
       if (o.fn) o.fn(this);
     };
     if (this.node === sp.node && !this.path.length) arrive(); else this.goTo(sp.node, arrive);
   }
   busy() { return !!this.task || this.path.length > 0; }
+  // One walking step with local avoidance: side-step people ahead (both keep to starboard when
+  // meeting head-on), never into furniture, and wait if boxed in. Returns true if they moved.
+  step(ux, uz, st, dt) {
+    const px = -uz, pz = ux, others = CREW.others(this, this.ghostT > 0), R = 0.6;
+    let lat = 0, blocker = null;
+    for (const o of others) {
+      const rx = o.x - this.x, rz = o.z - this.z, ahead = rx * ux + rz * uz, side = rx * px + rz * pz;
+      if (ahead < -0.1 || ahead > 2.2 || Math.abs(side) > 0.85) continue;
+      lat += (Math.abs(side) < 0.1 ? 1 : -Math.sign(side)) * (1 - Math.abs(side) / 0.85) * (1 - Math.max(0, ahead) / 2.2);
+    }
+    const cur = CREW.intrusion(this.x, this.z);
+    // a candidate direction is fine if it does not walk into anyone (or, for detours, into furniture —
+    // the path itself is known to be clear)
+    const ok = (vx, vz, detour) => {
+      const nx = this.x + vx * st, nz = this.z + vz * st;
+      if (detour && CREW.intrusion(nx, nz) > cur + 1e-4) return false;
+      for (const o of others) {
+        const dn = Math.hypot(nx - o.x, nz - o.z);
+        if (dn < R && dn < Math.hypot(this.x - o.x, this.z - o.z)) { blocker = o; return false; }
+      }
+      this.x = nx; this.z = nz; this.waitT = 0;
+      return true;
+    };
+    const sd = lat < 0 ? -1 : 1, q = clamp(lat, -1, 1) * 1.5;
+    const dir = (k) => { const vx = ux + px * k, vz = uz + pz * k, l = Math.hypot(vx, vz); return [vx / l, vz / l]; };
+    if (lat && ok(...dir(q), true)) return true;
+    if (ok(ux, uz, false)) return true;
+    if (ok(...dir(sd * 2.5), true)) return true;       // squeeze past sideways as a last resort
+    // boxed in: wait; ask the Master to make way; two crew stuck on each other squeeze past after a while
+    this.waitT += dt;
+    if (blocker && blocker.player && this.waitT > 1.2 && G.simT - (this._excuseT ?? -99) > 25 && !SPEECH.speaking(this.id)) {
+      this._excuseT = G.simT;
+      CREW.say(this.id, pick(['Excuse me, Captain.', 'Sorry Captain — may I pass?', 'Coming through, Captain.']));
+    }
+    if (this.waitT > 4 && !(blocker && blocker.player)) { this.ghostT = 1.5; this.waitT = 0; }
+    return false;
+  }
   talk(sec) { this.talkT = sec; }
   update(dt) {
     if (!this.present) return;
     const rdt = dt;
     let moving = false;
-    if (this.path.length) {
+    // sitting down / getting up takes a moment; walking only starts once standing
+    this.sitK = clamp(this.sitK + (this.seat ? 1 : -1) * rdt * 2.2, 0, 1);
+    if (this.ghostT > 0) this.ghostT -= rdt;
+    if (this.path.length && this.sitK < 0.05) {
       const [tx, tz] = this.path[0];
       const dx = tx - this.x, dz = tz - this.z, d = Math.hypot(dx, dz);
       const sp = 1.35 * Math.min(3, Math.max(1, G.timeScale * 0.6));
-      if (d < 0.08) { this.path.shift(); if (!this.path.length) { this.state = 'idle'; const cb = this.onArrive; this.onArrive = null; cb && cb(); } }
-      else { const st = Math.min(d, sp * rdt); this.x += dx / d * st; this.z += dz / d * st; this.targetFace = Math.atan2(-dx, -dz); moving = true; }
+      // someone is standing on the spot: stop next to them (last waypoint) or cut the corner (on the way)
+      const onSpot = d < (this.path.length === 1 ? 1.0 : 0.9) && CREW.others(this).some((o) => Math.hypot(o.x - tx, o.z - tz) < 0.5);
+      if (d < 0.08 || onSpot) { this.path.shift(); this.waitT = 0; if (!this.path.length) { this.state = 'idle'; const cb = this.onArrive; this.onArrive = null; cb && cb(); } }
+      else {
+        const ox = this.x, oz = this.z;
+        if (this.step(dx / d, dz / d, Math.min(d, sp * rdt), rdt)) { this.targetFace = Math.atan2(-(this.x - ox), -(this.z - oz)); moving = true; }
+      }
     }
     // task timing: keep the pose while they are still talking on the radio / phone
     const t = this.task;
@@ -253,7 +309,14 @@ class CrewMember {
     }
     let df = ((this.targetFace - this.face + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     this.face += df * Math.min(1, rdt * 5);
-    this.group.position.set(this.x, 0, this.z); this.group.rotation.y = this.face;
+    // seated: body on the cushion (a little back), chair swivels with the sitter
+    const k = this.sitK * this.sitK * (3 - 2 * this.sitK), st = this.lastSeat;
+    if (k > 0 && st) {
+      const bx = st.x + Math.sin(this.face) * 0.06, bz = st.z + Math.cos(this.face) * 0.06;
+      this.group.position.set(lerp(this.x, bx, k), 0, lerp(this.z, bz, k));
+      if (this.seat && st.chair) st.chair.rotation.y += (this.face - st.chair.rotation.y) * Math.min(1, rdt * 4);
+    } else this.group.position.set(this.x, 0, this.z);
+    this.group.rotation.y = this.face;
     // animation
     const L = this.legs, A = this.arms;
     const onRadio = !moving && (this.pose === 'radio' || this.pose === 'phone');
@@ -265,11 +328,16 @@ class CrewMember {
       L[0].kn.rotation.x = -Math.max(0, -Math.cos(this.walkPh)) * 0.7; L[1].kn.rotation.x = -Math.max(0, Math.cos(this.walkPh)) * 0.7;
       A[0].sh.rotation.x = s * 0.4; A[1].sh.rotation.x = -s * 0.4; A[0].el.rotation.x = 0.3; A[1].el.rotation.x = 0.3;
       A[0].sh.rotation.z = -0.08; A[1].sh.rotation.z = 0.08;
-      this.hips.position.y = 0.94 + Math.abs(Math.cos(this.walkPh)) * 0.03;
+      this.hips.position.y = 0.94 + Math.abs(Math.cos(this.walkPh)) * 0.03; this.torso.rotation.x = 0;
     } else {
       this.idleT += rdt;
       for (const l of L) { l.hp.rotation.x *= 0.85; l.kn.rotation.x *= 0.85; }
       this.hips.position.y = 0.94;
+      if (k > 0 && st) {   // thighs forward on the cushion, shins down towards the footrest
+        this.hips.position.y = lerp(0.94, st.h + 0.09, k);
+        L.forEach((l, i) => { l.hp.rotation.x = k * (1.42 + i * 0.06); l.kn.rotation.x = -k * (1.2 + i * 0.12); });
+        this.torso.rotation.x = k * 0.06;
+      } else this.torso.rotation.x = 0;
       const breath = Math.sin(this.idleT * 1.6) * 0.012;
       this.chest.scale.set(1 + breath, 1, 1 + breath);
       const set = (a, sx, sz, el) => { a.sh.rotation.x += (sx - a.sh.rotation.x) * Math.min(1, rdt * 8); a.sh.rotation.z += (sz - a.sh.rotation.z) * Math.min(1, rdt * 8); a.el.rotation.x += (el - a.el.rotation.x) * Math.min(1, rdt * 8); };
@@ -321,6 +389,23 @@ const CREW = {
     this.buildStationFigures();
   },
   byId(id) { return this.members.find((c) => c.id === id); },
+  // people a walker must not run into: the other crew on the bridge and the player (skipCrew: squeezing past)
+  others(self, skipCrew) {
+    const o = [];
+    if (!skipCrew) for (const c of this.members) if (c !== self && c.present) o.push({ x: c.group.position.x, z: c.group.position.z });
+    if (PLAYER.inBridge()) o.push({ x: PLAYER.x, z: PLAYER.z, player: true });
+    return o;
+  },
+  // how deep a point (body radius r) is in a wall or piece of furniture, 0 if clear
+  intrusion(x, z, r = 0.2) {
+    if (!BR.inside(x, z)) return 1;
+    let d = 0;
+    for (const c of BR.colliders) {
+      const ix = Math.min(x - c.x0 + r, c.x1 + r - x), iz = Math.min(z - c.z0 + r, c.z1 + r - z);
+      if (ix > 0 && iz > 0) d = Math.max(d, Math.min(ix, iz));
+    }
+    return d;
+  },
   atHelm() { const ab = this.byId('ab'); return ab && ab.present && ab.node === 'helm' && ab.state === 'idle'; },
   update(dt) { this.members.forEach((c) => c.update(dt)); this.updateHelmsman(dt); this.updateStations(dt); this.updateAmbient(dt); },
 
@@ -390,17 +475,18 @@ const CREW = {
     const words = { 5: 'five', 10: 'ten', 15: 'fifteen', 20: 'twenty', 25: 'twenty-five', 30: 'thirty' };
     return side[0].toUpperCase() + side.slice(1) + ' ' + (words[Math.abs(deg)] || Math.abs(deg));
   },
-  helmOrder(deg) {
+  // the helmsman / 3/O repeat an order back to whoever gave it: "Starboard five, pilot."
+  helmOrder(deg, by = 'Captain') {
     // AB repeats the order (debounced)
     clearTimeout(this._helmT);
     this._helmT = setTimeout(() => {
-      if (this.atHelm()) this.say('ab', this.helmPhrase(deg) + ', Captain.' + (Math.random() < 0.4 ? ' Wheel is ' + this.helmPhrase(deg).toLowerCase() + '.' : ''));
+      if (this.atHelm()) this.say('ab', this.helmPhrase(deg) + ', ' + by + '.' + (Math.random() < 0.4 ? ' Wheel is ' + this.helmPhrase(deg).toLowerCase() + '.' : ''));
     }, 500);
     G.abCourse = null;
   },
-  teleAck(label) {
+  teleAck(label, by = 'Captain') {
     clearTimeout(this._teleT);
-    this._teleT = setTimeout(() => { const o3 = this.byId('o3'); if (o3 && o3.present) this.say('o3', label.charAt(0) + label.slice(1).toLowerCase() + ', Captain. Logged.'); }, 700);
+    this._teleT = setTimeout(() => { const o3 = this.byId('o3'); if (o3 && o3.present) this.say('o3', label.charAt(0) + label.slice(1).toLowerCase() + ', ' + by + '. Logged.'); }, 700);
   },
   updateHelmsman(dt) {
     // AB steering an ordered course (hand steering), human-like
@@ -410,8 +496,11 @@ const CREW = {
     this.helmState.t = 1.6;
     const err = wrap180(G.abCourse - s.psi / DEG);
     const rot = s.rotDegMin;
-    let order = clamp(Math.round((err * 1.4 - rot * 0.9) / 5) * 5, -20, 20);
-    if (Math.abs(err) < 1.2 && Math.abs(rot) < 1.5) { order = 0; if (!this._steadyTold) { this._steadyTold = true; this.say('ab', 'Steady on ' + pad(G.abCourse) + ', Captain.'); } }
+    // a good helmsman uses small, exact wheel and learns how much she needs against wind & tide
+    const hs = this.helmState; if (hs.course !== G.abCourse) { hs.course = G.abCourse; hs.trim = 0; }
+    if (Math.abs(err) < 6) hs.trim = clamp((hs.trim || 0) + err * 0.05, -5, 5);
+    let order = clamp(Math.round(err * 4 - rot * 8 + hs.trim), -20, 20);
+    if (Math.abs(err) < 0.8 && Math.abs(rot) < 1) { if (Math.abs(err) < 0.3) order = Math.round(hs.trim); if (!this._steadyTold) { this._steadyTold = true; this.say('ab', 'Steady on ' + pad(G.abCourse) + ', ' + (G.pilotCon ? 'pilot' : 'Captain') + '.'); } }
     G.helmOrder = order;
   },
 

@@ -6,6 +6,7 @@ const BR = {
   CW: 12, WZ: -1.5,
   halfW: 30.8, zFront: -6.0, zAft: 6.0, H: 3.3, sill: 1.05,
   colliders: [],             // {x0,x1,z0,z1}
+  seats: [],                 // chairs the player (and crew at the radars) can sit on
   nodes: {},                 // crew navigation graph
   controls: {},              // named control objects
   anim: [],                  // animated bits (wipers, radar scanners)
@@ -13,6 +14,17 @@ const BR = {
 const BRIDGE_Y = 45.8, BRIDGE_Z = -50;
 
 function addCollider(x0, x1, z0, z1) { BR.colliders.push({ x0: Math.min(x0, x1), x1: Math.max(x0, x1), z0: Math.min(z0, z1), z1: Math.max(z0, z1) }); }
+
+// A seat: x/z of the cushion centre, yaw the sitter faces (0 = forward), h the cushion top,
+// chair = the group that swivels with the sitter (pedestal chairs only). `by` = who sits there.
+function addSeat(parent, o) {
+  const s = { id: o.id || 'seat' + BR.seats.length, x: o.x, z: o.z, yaw: o.yaw || 0, h: o.h, chair: o.chair || null, name: o.name, by: null };
+  const hit = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.3, 0.54), new THREE.MeshBasicMaterial({ visible: false }));
+  hit.position.set(o.x, o.h + 0.05, o.z); hit.rotation.y = s.yaw; parent.add(hit);
+  interactive(hit, { name: o.name, hint: 'Sit down (click or F) · walk to get up', click: () => PLAYER.sit(s) });
+  s.hit = hit; BR.seats.push(s);
+  return s;
+}
 
 // Registers a mesh as interactive. cfg: {name, hint, click(hit, btn), wheel(dir), down(), up(), zoom: display key (Space)}
 function interactive(mesh, cfg) {
@@ -451,11 +463,11 @@ function buildBridge(shipGroup) {
     B.box(M.steel, 0.05, 1.0, 2.6, sx * 29.35, 0.5, -2.9);
     B.box(M.steel, 0.06, 0.06, 2.6, sx * 29.35, 1.0, -2.9);
     // chair
-    buildChair(bg, sx * 27.2, -3.3, M);
+    buildChair(bg, sx * 27.2, -3.3, M, null, 'Bridge wing chair');
   }
 
   // ---------- navigator chairs
-  buildChair(bg, -5.5, -3.25, M); buildChair(bg, 5.5, -3.25, M);
+  buildChair(bg, -5.5, -3.25, M, 'navL', 'Navigator chair (port radar)'); buildChair(bg, 5.5, -3.25, M, 'navR', 'Navigator chair (starboard radar)');
 
   // ---------- chart table (port aft)
   {
@@ -536,16 +548,16 @@ function buildBridge(shipGroup) {
   BR.nodes = {
     door: [0, 5.3], aftC: [0, 2.6], helm: [0, -3.2], conL: [-2.2, -3.45], conR: [2.2, -3.45], pilot: [-1.1, -3.45], tele: [1.1, -3.4],
     ecdL: [-4.4, -3.45], ecdR: [4.4, -3.45], aftL: [-7.5, 2.6], aftR: [7.5, 2.6], chart: [-9.8, 4.3], gmdss: [9.8, 4.3],
-    sideL: [-7.8, -3.9], sideR: [7.8, -3.9], radarL: [-5.5, -3.45], radarR: [5.5, -3.45], apL: [-3.3, -3.45], dockR: [3.3, -3.45], wingL: [-26.5, -3.2], wingR: [26.5, -3.2], midL: [-16, -3.0], midR: [16, -3.0], coffee: [-4.5, 4.6],
+    sideL: [-7.8, -3.9], sideR: [7.8, -3.9], radarL: [-5.5, -2.5], radarR: [5.5, -2.5], apL: [-3.3, -3.45], dockR: [3.3, -3.45], wingL: [-26.5, -3.2], wingR: [26.5, -3.2], midL: [-16, -3.0], midR: [16, -3.0], coffee: [-4.5, 4.6],
   };
   BR.edges = [['door', 'aftC'], ['aftC', 'helm'], ['aftC', 'pilot'], ['aftC', 'tele'], ['helm', 'pilot'], ['helm', 'tele'], ['pilot', 'conL'], ['tele', 'conR'], ['conL', 'ecdL'], ['conR', 'ecdR'],
-    ['aftC', 'aftL'], ['aftC', 'aftR'], ['aftL', 'chart'], ['aftR', 'gmdss'], ['ecdL', 'sideL'], ['ecdR', 'sideR'], ['sideL', 'midL'], ['sideR', 'midR'], 
+    ['aftC', 'aftL'], ['aftC', 'aftR'], ['aftL', 'chart'], ['aftR', 'gmdss'], ['sideL', 'midL'], ['sideR', 'midR'], 
     ['midL', 'wingL'], ['midR', 'wingR'], ['aftC', 'coffee'], ['aftL', 'coffee'],
     ['conL', 'apL'], ['apL', 'ecdL'], ['ecdL', 'radarL'], ['radarL', 'sideL'], ['conR', 'dockR'], ['dockR', 'ecdR'], ['ecdR', 'radarR'], ['radarR', 'sideR']];
   return bg;
 }
 
-function buildChair(parent, x, z, M) {
+function buildChair(parent, x, z, M, id, name = 'Bridge chair') {
   // Maersk-blue high-back navigator chair on a pedestal with footrest
   const g = new THREE.Group(); g.position.set(x, 0, z);
   const b = new Batcher();
@@ -564,6 +576,7 @@ function buildChair(parent, x, z, M) {
   b.build(g, { cast: true, dynamic: true });
   parent.add(g);
   addCollider(x - 0.35, x + 0.35, z - 0.35, z + 0.35);
+  addSeat(parent, { id, x, z, h: 0.93, chair: g, name });
   return g;
 }
 

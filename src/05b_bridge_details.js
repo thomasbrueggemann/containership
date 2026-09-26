@@ -457,7 +457,7 @@ function addBridgeDetails(bg, M, B) {
       interactive(sc, { name, zoom: k });
     });
     B.box(M.black, 0.45, 0.02, 0.16, cx0 + 1.65, hh + 0.01, z1 - 0.2);
-    buildChair(bg, cx0 + 1.65, z1 + 0.75, M);
+    buildChair(bg, cx0 + 1.65, z1 + 0.75, M, null, 'Chair (route planning station)');
   }
   // ---------- master's office desk (port side, aft)
   {
@@ -475,7 +475,7 @@ function addBridgeDetails(bg, M, B) {
     B.box(std(0xe8e8e4, 0.5), 0.45, 0.22, 0.38, -5.45, 0.9, dz0 + 0.3);             // printer
     B.box(std(0xfbfbf7, 0.8), 0.21, 0.005, 0.3, -3.35, 0.79, dz0 + 0.45, 0.2);      // papers
     B.box(std(0xfbfbf7, 0.8), 0.21, 0.005, 0.3, -3.3, 0.795, dz0 + 0.5, -0.1);
-    buildChair(bg, -4.4, dz1 + 0.6, M);
+    buildChair(bg, -4.4, dz1 + 0.6, M, null, 'Office chair');
   }
   // ---------- coat hooks by the door: hard hats, hi-vis vests, lifejackets
   {
@@ -512,7 +512,10 @@ function addBridgeDetails(bg, M, B) {
     for (const dx of [-tw / 2, tw / 2]) B.box(M.teak, 0.03, 0.035, td, tx + dx, 0.78, tz);
     for (const dx of [-0.6, 0.6]) { B.cyl(M.chrome, 0.035, 0.035, 0.72, tx + dx, 0.36, tz, 10); B.cyl(M.chrome, 0.2, 0.22, 0.03, tx + dx, 0.015, tz, 16); }
     addCollider(tx - tw / 2 - 0.05, tx + tw / 2 + 0.05, tz - td / 2 - 0.05, tz + td / 2 + 0.05);
-    for (const dx of [-0.45, 0.45]) { buildMessChair(B, M, tx + dx, tz - 0.85, Math.PI); buildMessChair(B, M, tx + dx, tz + 0.85, 0); }   // backrests away from the table
+    for (const dx of [-0.45, 0.45]) for (const [dz, ry] of [[-0.85, Math.PI], [0.85, 0]]) {   // backrests away from the table
+      buildMessChair(B, M, tx + dx, tz + dz, ry);
+      addSeat(bg, { x: tx + dx, z: tz + dz, yaw: ry, h: 0.52, name: 'Chair at the pilot\'s table' });
+    }
     addCollider(tx - 1.0, tx + 1.0, tz - 1.15, tz - 0.6); addCollider(tx - 1.0, tx + 1.0, tz + 0.6, tz + 1.15);
     // things on the table: mugs, a chart folio, walkie-talkie
     B.cyl(std(0xffffff, 0.4), 0.04, 0.035, 0.1, tx - 0.5, 0.815, tz - 0.2, 12);

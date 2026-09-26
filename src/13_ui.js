@@ -4,7 +4,7 @@
 const UI = {
   zoomKey: null, crewSel: null, toasts: [], hudT: 0,
   KEYS: [
-    ['h', 'On the bridge'], ['W A S D', 'Walk  (Shift = hurry)'], ['Mouse', 'Look around (always on — Esc pauses; mouse settings in the pause menu)'], ['Click', 'Use the button / lever under the crosshair'], ['Space', 'Full-screen view of the screen / chart under the crosshair (Space again closes, wheel or − + changes range)'], ['Right mouse / B', 'Binoculars'], ['1 2 3 4', 'Jump: centre console · port wing · stbd wing · chart table'], ['V', 'External camera (mouse orbits, wheel zooms)'],
+    ['h', 'On the bridge'], ['W A S D', 'Walk  (Shift = hurry)'], ['Mouse', 'Look around (always on — Esc pauses; mouse settings in the pause menu)'], ['Click', 'Use the button / lever under the crosshair — click a chair to sit down, W A S D to get up'], ['Space', 'Full-screen view of the screen / chart under the crosshair (Space again closes, wheel or − + changes range)'], ['Right mouse / B', 'Binoculars'], ['1 2 3 4', 'Jump: centre console · port wing · stbd wing · chart table'], ['V', 'External camera (mouse orbits, wheel zooms)'],
     ['h', 'Ship handling'], ['↑ / ↓', 'Engine telegraph (both engines) one notch'], ['← / →', 'Helm order 5° (Shift 10°) — or autopilot ±1° in AUTO'], ['X', 'Midships'], ['Q / E', 'Bow thrusters to port / starboard (25 %)'], ['Z', 'Thrusters zero'], ['T', 'Tug orders panel'], ['H (hold)', 'Ship\'s whistle'],
     ['h', 'Command'], ['Tab', 'Crew orders — delegate to your officers'], ['M R C G', 'Full-screen ECDIS · radar · conning · docking'], ['[ / ]', 'Time compression ×1 … ×8'], ['P', 'Pause'], ['Ctrl / ⌘ + S', 'Save the game (also autosaves every 90 s)'], ['J / K', 'Hide mission panel / status bar'],
   ],

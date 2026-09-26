@@ -41,7 +41,43 @@ const PLAYER = {
     addEventListener('keyup', (e) => this.onKey(e, false));
     addEventListener('blur', () => { this.keys = {}; if (G.whistle) setWhistle(false); });
   },
-  place(x, z, yaw) { this.x = x; this.z = z; this.yaw = yaw; this.pitch = -0.06; },
+  place(x, z, yaw) { this.leaveSeat(); this.x = x; this.z = z; this.yaw = yaw; this.pitch = -0.06; this.moveT = 1; },
+  // ---- sitting: click a chair (or F at it); any walking key gets up again
+  seat: null, eyeY: 1.74, moveT: 1,
+  seatPos(s) { const a = s.chair ? this.yaw : s.yaw; return [s.x + Math.sin(a) * 0.08, s.z + Math.cos(a) * 0.08]; },   // a little back on the cushion
+  sit(s, instant) {
+    if (this.seat === s) { this.standUp(); return; }
+    if (s.by && s.by !== 'player') { const c = CREW.info[s.by]; UI.toast((c ? c.short : 'Someone') + ' is sitting there', 'info'); return; }
+    this.leaveSeat();
+    this.seat = s; s.by = 'player'; s.hit.visible = false;
+    this.vx = this.vz = 0;
+    this.moveFrom = [this.x, this.z]; this.moveT = instant ? 1 : 0;
+    [this.x, this.z] = this.seatPos(s);
+    if (!s.chair) this.turnTo = s.yaw;              // fixed chairs: turn to face the table
+    if (instant) { this.eyeY = s.h + 0.8; if (!s.chair) this.yaw = s.yaw; this.turnTo = null; }
+  },
+  leaveSeat() {
+    const s = this.seat; if (!s) return;
+    if (s.by === 'player') s.by = null;
+    s.hit.visible = true; this.seat = null; this.turnTo = null;
+  },
+  // get up and step out beside or behind the chair, wherever there is room
+  standUp() {
+    const s = this.seat; if (!s) return;
+    this.leaveSeat();
+    const a = s.chair ? this.yaw : s.yaw, from = [this.x, this.z];
+    for (const [da, r] of [[Math.PI, 0.75], [Math.PI / 2, 0.7], [-Math.PI / 2, 0.7], [Math.PI * 0.75, 0.8], [-Math.PI * 0.75, 0.8], [0, 0.7], [Math.PI, 1.1], [Math.PI / 2, 1.1], [-Math.PI / 2, 1.1]]) {
+      const nx = s.x - Math.sin(a + da) * r, nz = s.z - Math.cos(a + da) * r;
+      if (this.canStand(nx, nz)) { this.x = nx; this.z = nz; break; }
+    }
+    this.moveFrom = from; this.moveT = 0;
+  },
+  canStand(x, z, r = 0.28) {
+    if (!BR.inside(x, z)) return false;
+    for (const c of BR.colliders) if (x > c.x0 - r && x < c.x1 + r && z > c.z0 - r && z < c.z1 + r) return false;
+    for (const m of CREW.members) if (m.present && Math.hypot(x - m.group.position.x, z - m.group.position.z) < 0.55) return false;
+    return true;
+  },
   inBridge() { return G.mode === 'bridge'; },
   pos() { return { x: this.x, z: this.z }; },
   // Raw (unaccelerated) mouse input where the browser supports it, plain pointer lock otherwise.
@@ -160,6 +196,7 @@ const PLAYER = {
     if (down && G.started && !this.locked && k !== 'Escape' && !UI.modalOpen() && !UI.panelOpen()) this.requestLock();
     this.keys[k] = down;
     if (!G.started) return;
+    if (down && this.seat && !e.repeat && /^Key[WASD]$/.test(k) && !(e.ctrlKey || e.metaKey) && G.mode === 'bridge' && !UI.modalOpen()) this.standUp();
     if (k === 'KeyH') { if (down !== G.whistle) setWhistle(down); e.preventDefault(); return; }
     if (k === 'KeyB' && down) { this.binos = !this.binos; return; }
     if (!down) return;
@@ -216,6 +253,11 @@ const PLAYER = {
     // walking
     const K = this.keys; let fx = 0, fz = 0;
     if (!UI.modalOpen()) { if (K.KeyW) fz -= 1; if (K.KeyS) fz += 1; if (K.KeyA) fx -= 1; if (K.KeyD) fx += 1; }
+    if (this.seat) {                                  // seated (a fresh W/A/S/D press gets up — see onKey)
+      fx = fz = 0;
+      if (this.turnTo != null) { const d = wrap180((this.turnTo - this.yaw) / DEG) * DEG; this.yaw += d * Math.min(1, dt * 6); if (Math.abs(d) < 0.01) this.turnTo = null; }
+      if (this.seat.chair) { const c = this.seat.chair; c.rotation.y += wrap180((this.yaw - c.rotation.y) / DEG) * DEG * Math.min(1, dt * 10); [this.x, this.z] = this.seatPos(this.seat); }
+    }
     const run = K.ShiftLeft || K.ShiftRight;
     const speed = run ? 6.5 : 3.2;                    // m/s – brisk walk / jog across a 61 m bridge
     let tvx = 0, tvz = 0;
@@ -234,9 +276,16 @@ const PLAYER = {
       if (this.x === ox) this.vx *= 0.5; if (this.z === oz) this.vz *= 0.5;
       this.bob += dt * (run ? 12 : 8.5);
     }
-    this.rig.position.set(this.x, 0, this.z);
+    // sitting down / getting up: glide between standing spot and cushion, eye height follows
+    const eyeT = this.seat ? this.seat.h + 0.8 : this.eye;
+    this.eyeY += (eyeT - this.eyeY) * Math.min(1, dt * 7);
+    if (this.moveT < 1) {
+      this.moveT = Math.min(1, this.moveT + dt / 0.45);
+      const k = this.moveT * this.moveT * (3 - 2 * this.moveT);
+      this.rig.position.set(lerp(this.moveFrom[0], this.x, k), 0, lerp(this.moveFrom[1], this.z, k));
+    } else this.rig.position.set(this.x, 0, this.z);
     this.rig.rotation.set(0, this.yaw, 0);
-    camera.position.y = this.eye + (moving ? Math.sin(this.bob * 2) * 0.022 : 0);
+    camera.position.y = this.eyeY + (moving ? Math.sin(this.bob * 2) * 0.022 : 0);
     camera.rotation.set(this.pitch, 0, 0);
     // hover
     // only point at things with the crosshair (captured) or the cursor (drag-look fallback)
@@ -248,7 +297,7 @@ const PLAYER = {
     const nx = this.x + dx, nz = this.z + dz, r = 0.28;
     if (!BR.inside(nx, nz)) return;
     for (const c of BR.colliders) if (nx > c.x0 - r && nx < c.x1 + r && nz > c.z0 - r && nz < c.z1 + r) return;
-    for (const m of CREW.members) if (m.present && Math.hypot(nx - m.x, nz - m.z) < 0.55) return;
+    for (const m of CREW.members) if (m.present && Math.hypot(nx - m.group.position.x, nz - m.group.position.z) < 0.55 && Math.hypot(nx - m.group.position.x, nz - m.group.position.z) < Math.hypot(this.x - m.group.position.x, this.z - m.group.position.z)) return;
     this.x = nx; this.z = nz;
   },
 };
