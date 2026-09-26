@@ -38,9 +38,8 @@ const TRAFFIC = {
       o.psi += clamp(d, -0.012 * dt * (o.L < 60 ? 4 : 1), 0.012 * dt * (o.L < 60 ? 4 : 1));
       o.x += Math.sin(o.psi) * o.sog * dt; o.z -= Math.cos(o.psi) * o.sog * dt;
       o.cog = o.psi;
-      o.grp.position.set(o.x, Math.sin(G.simT * 0.8 + o.L) * (o.L < 60 ? 0.2 : 0.02), o.z);
-      o.grp.rotation.y = -o.psi;
-      if (o.L < 60) o.grp.rotation.z = Math.sin(G.simT * 1.3 + o.L) * 0.03;
+      const bob = seaState().bob, small = o.L < 60;
+      rideSwell(o.grp, o.x, o.z, o.psi, o.L, o.B, small ? Math.sin(G.simT * 0.8 + o.L) * 0.1 * bob : 0, small ? Math.sin(G.simT * 1.3 + o.L) * 0.02 * bob : 0);
       o.wakeObj.update(dt, o.x - Math.sin(o.psi) * o.L / 2, o.z + Math.cos(o.psi) * o.L / 2, -Math.sin(o.psi), Math.cos(o.psi), clamp(o.sog / 4, 0, 0.8));
       // collision with own ship
       const s = G.ship; const dist = Math.hypot(o.x - s.x, o.z - s.z);
@@ -108,7 +107,7 @@ const PILOTBOAT = {
       if (okSpeed && okHdg && G.flags.ladder) this.alongT += dt;
       else if (Math.floor(G.simT) % 20 === 0 && !this._nag) { this._nag = true; SCN.say('pb', !G.flags.ladder ? 'Majestic Maersk, pilot boat: I see no ladder! ' + G.flags.leeSide + ' side please.' : !okSpeed ? 'Majestic Maersk, pilot boat: speed ' + (s.sog / KN).toFixed(0) + ' knots — we need six to ten.' : 'Majestic Maersk, pilot boat: please steady on about zero-nine-zero for the lee.', true); SCN.later(40, 'pbNag'); }
       if (this.alongT > 45) { this.state = 'leave'; SCN.pilotBoarded(); }
-      this.grp.position.set(this.x, Math.sin(G.simT * 2) * 0.35, this.z); this.grp.rotation.y = -this.psi; this.grp.rotation.z = Math.sin(G.simT * 1.7) * 0.05;
+      rideSwell(this.grp, this.x, this.z, this.psi, 18, 5.4, Math.sin(G.simT * 2) * 0.15 * seaState().bob, Math.sin(G.simT * 1.7) * 0.03 * seaState().bob);
       this.wake.update(dt, this.x - Math.sin(this.psi) * 9, this.z + Math.cos(this.psi) * 9, -Math.sin(this.psi), Math.cos(this.psi), 0.6);
       return;
     }
@@ -120,8 +119,8 @@ const PILOTBOAT = {
     const dist = Math.hypot(tx - this.x, tz - this.z);
     this.sog = lerp(this.sog, Math.min(speed * KN, dist * 0.2 + (this.state === 'approach' ? s.sog : 0)), Math.min(1, dt * 0.5));
     this.x += Math.sin(this.psi) * this.sog * dt; this.z -= Math.cos(this.psi) * this.sog * dt;
-    this.grp.position.set(this.x, Math.sin(G.simT * 2) * 0.3, this.z); this.grp.rotation.y = -this.psi;
-    this.grp.rotation.x = -clamp(this.sog / 12, 0, 0.06);
+    rideSwell(this.grp, this.x, this.z, this.psi, 18, 5.4, Math.sin(G.simT * 2) * 0.12 * seaState().bob);
+    this.grp.rotation.x += clamp(this.sog / 12, 0, 0.06);          // bow lifts under way
     this.wake.update(dt, this.x - Math.sin(this.psi) * 9, this.z + Math.cos(this.psi) * 9, -Math.sin(this.psi), Math.cos(this.psi), clamp(this.sog / 5, 0, 1));
   },
 };
@@ -196,8 +195,7 @@ class Tug {
       this.x += Math.sin(this.psi) * this.sog * dt; this.z -= Math.cos(this.psi) * this.sog * dt;
     }
     const wash = this.state === 'fast' ? tg.power : this.sog / 6;
-    this.grp.position.set(this.x, Math.sin(G.simT * 1.4 + this.idx) * 0.15, this.z);
-    this.grp.rotation.y = -this.psi;
+    rideSwell(this.grp, this.x, this.z, this.psi, 32, 12.8, Math.sin(G.simT * 1.4 + this.idx) * 0.08 * seaState().bob);
     this.wake.update(dt, this.x - Math.sin(this.psi) * 16, this.z + Math.cos(this.psi) * 16, -Math.sin(this.psi), Math.cos(this.psi), clamp(wash, 0, 1));
     // towline
     if ((this.state === 'fast' && !this.push) || this.state === 'making') {

@@ -35,7 +35,7 @@ const SAVE = {
     const st = SCN.steps[SCN.cur];
     return cp({
       v: this.VERSION,
-      meta: { date: Date.now(), simT: G.simT, step: SCN.cur, steps: SCN.steps.length, title: st ? st.title : 'Alongside', score: SCN.total(), tod: CFG.tod, wind: CFG.wind },
+      meta: { date: Date.now(), simT: G.simT, step: SCN.cur, steps: SCN.steps.length, title: st ? st.title : 'Alongside', score: SCN.total(), tod: CFG.tod, wind: CFG.wind, sea: CFG.sea },
       cfg: CFG, g, ship,
       scn: { cur: SCN.cur, once: SCN.once, done: SCN.done, failed: SCN.failed, contactCool: SCN.contactCool, lastFenderT: SCN.lastFenderT ?? null, pilotT: SCN.pilotT || 0, conT: SCN.conT || 0,
         timers: SCN.timers.filter((t) => t.key).map((t) => ({ t: t.t, key: t.key, arg: t.arg })),
@@ -138,13 +138,13 @@ const SAVE = {
         <button class="load" data-id="${esc(s.id)}">
           <span class="st">${m.step >= m.steps ? 'ALONGSIDE' : 'STEP ' + (m.step + 1) + ' / ' + m.steps}${s.auto ? ' · AUTOSAVE' : ''}</span>
           <span class="tt">${esc(m.title)}</span>
-          <span class="mt">${TOD[m.tod] || m.tod}, ${WIND[m.wind] || m.wind} · ${Math.round(m.simT / 60)} min under way · ${m.score} pts</span>
+          <span class="mt">${TOD[m.tod] || m.tod}, ${WIND[m.wind] || m.wind}${m.sea ? ', ' + m.sea + ' sea' : ''} · ${Math.round(m.simT / 60)} min under way · ${m.score} pts</span>
           <span class="pb"><i style="width:${pct}%"></i></span>
           <span class="dt">${when(m.date)}</span>
         </button>
         <button class="del" data-del="${esc(s.id)}" title="Delete this save">×</button></div>`;
     }).join('');
-    box.querySelectorAll('.load').forEach((b) => (b.onclick = () => this.resume(b.dataset.id)));
+    box.querySelectorAll('.load').forEach((b) => (b.onclick = () => { PLAYER.requestLock(true); this.resume(b.dataset.id); }));
     box.querySelectorAll('.del').forEach((b) => (b.onclick = () => { this.remove(b.dataset.del); this.renderList(); }));
   },
   init() {

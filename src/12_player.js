@@ -6,22 +6,37 @@ const PLAYER = {
   binos: false, binoHold: false, fov: 68, bob: 0,
   orbit: { az: 2.3, el: 0.32, dist: 620 },
   hover: null, ray: new THREE.Raycaster(), mouse: new THREE.Vector2(0, 0), lockFailed: false,
+  // mouse-look settings (kept per browser) and pending look input, applied once per frame
+  opts: { sens: 1, invert: false, smooth: true }, lookX: 0, lookY: 0, wantLock: false, skipMoves: 0,
+  loadOpts() { try { Object.assign(this.opts, JSON.parse(localStorage.getItem('tripleE.mouse') || '{}')); } catch (e) { /* defaults */ } },
+  saveOpts() { try { localStorage.setItem('tripleE.mouse', JSON.stringify(this.opts)); } catch (e) { /* not persisted */ } },
+  // the mouse is captured on the game container, so it can already be taken on the click that starts the game
+  get lockEl() { return $('app'); },
   init() {
+    this.loadOpts();
     this.rig = new THREE.Object3D(); G.bridgeGroup.add(this.rig);
     this.rig.add(camera); camera.position.set(0, this.eye, 0); camera.rotation.set(0, 0, 0);
     this.place(-0.4, -1.6, 0);
-    const el = renderer.domElement;
+    const el = this.lockEl;
+    this.locked = document.pointerLockElement === el; if (this.locked) this.wantLock = true;
     el.addEventListener('mousedown', (e) => this.onDown(e));
     addEventListener('mouseup', (e) => this.onUp(e));
     addEventListener('mousemove', (e) => this.onMove(e));
     el.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('pointerlockchange', () => {
+      const was = this.locked;
       this.locked = document.pointerLockElement === el; UI.lockChanged(this.locked);
-      // Esc while a display is up releases the mouse (browser rule) – treat it as "close"
-      if (!this.locked && UI.zoomOpen() && UI.zoomLocked) UI.closeZoom();
+      if (this.locked) { this.wantLock = true; this.refusals = 0; this.skipMoves = 2; this.lookX = this.lookY = 0; }   // first deltas after locking are junk
+      const ours = this._releasing; this._releasing = false;
+      if (this.locked || !was || ours || !G.started) return;
+      // the browser took the mouse back (Esc, or switching windows): Esc closes a display, otherwise pause
+      if (UI.zoomOpen()) UI.closeZoom();
+      else if (!UI.modalOpen() && !UI.panelOpen()) UI.togglePause(true);
     });
-    document.addEventListener('pointerlockerror', () => { this.lockFailed = true; UI.lockChanged(false); });
+    // repeated refusals (e.g. embedded without pointer-lock permission) fall back to drag-to-look;
+    // a single refusal is usually Chrome's short cool-down after Esc and is simply retried later
+    document.addEventListener('pointerlockerror', () => this.lockRefused());
     addEventListener('keydown', (e) => this.onKey(e, true));
     addEventListener('keyup', (e) => this.onKey(e, false));
     addEventListener('blur', () => { this.keys = {}; if (G.whistle) setWhistle(false); });
@@ -29,20 +44,30 @@ const PLAYER = {
   place(x, z, yaw) { this.x = x; this.z = z; this.yaw = yaw; this.pitch = -0.06; },
   inBridge() { return G.mode === 'bridge'; },
   pos() { return { x: this.x, z: this.z }; },
-  requestLock() {
-    if (this.lockFailed || UI.modalOpen()) return;
-    const el = renderer.domElement;
-    try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => { this.lockFailed = true; }); } catch (e) { this.lockFailed = true; }
+  // Raw (unaccelerated) mouse input where the browser supports it, plain pointer lock otherwise.
+  requestLock(force) {
+    if (this.lockFailed || this.locked || (!force && UI.modalOpen())) return;
+    const el = this.lockEl;
+    if (!el.requestPointerLock) { this.lockFailed = true; UI.lockChanged(false); return; }
+    const plain = () => { try { const q = el.requestPointerLock(); if (q && q.catch) q.catch(() => this.lockRefused()); } catch (e) { this.lockRefused(); } };
+    try {
+      const p = el.requestPointerLock({ unadjustedMovement: true });
+      if (p && p.catch) p.catch((err) => { if (err && err.name === 'NotSupportedError') plain(); else this.lockRefused(); });
+    } catch (e) { plain(); }
   },
+  lockRefused() { this.refusals = (this.refusals || 0) + 1; if (this.refusals >= 6) { this.lockFailed = true; UI.lockChanged(false); } },
+  // after a menu closes, take the mouse back if the player was using mouse-look before
+  release() { if (document.pointerLockElement) { this._releasing = true; document.exitPointerLock(); } },
+  recapture() { if (this.wantLock && !this.locked && !this.lockFailed && !UI.modalOpen() && !UI.panelOpen()) this.requestLock(); },
   onDown(e) {
     AUDIO.resume(); G.bnwasT = 0;
     // with the mouse captured, a click on a full-screen display simply closes it again
-    if (UI.zoomOpen() && (this.locked || e.target === renderer.domElement)) { UI.closeZoom(); return; }
+    if (UI.zoomOpen() && (this.locked || this.lockEl.contains(e.target))) { UI.closeZoom(); return; }
     if (UI.modalOpen()) return;
     if (e.button === 2) { this.binoHold = true; return; }
-    if (G.mode === 'orbit') { this.drag = { x: e.clientX, y: e.clientY, moved: 0 }; return; }
-    if (!this.locked && !this.lockFailed && !this._askedLock) { this._askedLock = true; this.requestLock(); return; }
-    if (!this.locked && !this.lockFailed) { this.requestLock(); }
+    // a click that captures the mouse only captures – it never presses whatever is under the free cursor
+    if (!this.locked && !this.lockFailed) { this.requestLock(); return; }
+    if (G.mode === 'orbit') { if (!this.locked) this.drag = { x: e.clientX, y: e.clientY, moved: 0 }; return; }
     this.drag = { x: e.clientX, y: e.clientY, moved: 0 };
     // press-and-hold controls (whistle, tiller)
     const hit = this.pick(e);
@@ -58,18 +83,34 @@ const PLAYER = {
     if (hit) { const ia = hit.object.userData.ia; if (ia.click) ia.click(hit, e.button); }
   },
   onMove(e) {
-    if (this.locked) { if (!UI.zoomOpen()) this.look(e.movementX, e.movementY); return; }
+    if (this.locked) {
+      if (this.skipMoves > 0) { this.skipMoves--; return; }
+      // Chrome occasionally reports a huge bogus jump right after focus/lock changes – drop it
+      if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
+      if (G.mode === 'orbit') { this.orbit.az -= e.movementX * 0.004 * this.opts.sens; this.orbit.el = clamp(this.orbit.el + e.movementY * 0.003 * this.opts.sens * (this.opts.invert ? -1 : 1), 0.02, 1.45); }
+      else if (!UI.zoomOpen()) { this.lookX += e.movementX; this.lookY += e.movementY; }
+      return;
+    }
     this.mouse.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
     if (this.drag) {
       const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y;
       this.drag.moved += Math.abs(dx) + Math.abs(dy); this.drag.x = e.clientX; this.drag.y = e.clientY;
       if (G.mode === 'orbit') { this.orbit.az -= dx * 0.005; this.orbit.el = clamp(this.orbit.el + dy * 0.004, 0.02, 1.45); }
-      else if (!this.holding) this.look(dx * 1.2, dy * 1.2);
+      else if (!this.holding) { this.lookX += dx * 1.2; this.lookY += dy * 1.2; }
     }
   },
   look(dx, dy) {
-    const k = 0.0022 * (this.fov / 68);
-    this.yaw -= dx * k; this.pitch = clamp(this.pitch - dy * k, -1.45, 1.35);
+    const k = 0.0022 * this.opts.sens * (this.fov / 68);      // slower through the binoculars
+    this.yaw -= dx * k; this.pitch = clamp(this.pitch - dy * k * (this.opts.invert ? -1 : 1), -1.45, 1.35);
+  },
+  // apply the mouse movement gathered since the last frame; optional light smoothing (~25 ms)
+  applyLook(dt) {
+    if (!this.lookX && !this.lookY) return;
+    const a = this.opts.smooth ? 1 - Math.exp(-dt / 0.025) : 1;
+    let dx = this.lookX * a, dy = this.lookY * a;
+    if (Math.abs(this.lookX - dx) < 0.05 && Math.abs(this.lookY - dy) < 0.05) { dx = this.lookX; dy = this.lookY; }
+    this.lookX -= dx; this.lookY -= dy;
+    this.look(dx, dy);
   },
   onWheel(e) {
     e.preventDefault();
@@ -98,12 +139,12 @@ const PLAYER = {
   toggleBinos() { this.binos = !this.binos; },
   toggleOrbit() {
     if (G.mode === 'bridge') {
-      G.mode = 'orbit'; scene.add(camera); camera.rotation.set(0, 0, 0);
-      if (document.pointerLockElement) document.exitPointerLock();
+      G.mode = 'orbit'; scene.add(camera); camera.rotation.set(0, 0, 0);   // the mouse now orbits the ship
     } else {
       G.mode = 'bridge'; this.rig.add(camera); camera.position.set(0, this.eye, 0);
     }
     UI.modeChanged();
+    this.recapture();
   },
   teleport(k) {
     const spots = { 1: [-0.4, -1.6, 0], 2: [-27.2, -2.3, 0.35], 3: [27.2, -2.3, -0.35], 4: [-9.8, 4.0, Math.PI] };
@@ -115,6 +156,8 @@ const PLAYER = {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
     const k = e.code;
     if (down) { G.bnwasT = 0; AUDIO.resume(); }
+    // any key takes the mouse back for looking around (keys are a user gesture, like a click)
+    if (down && G.started && !this.locked && k !== 'Escape' && !UI.modalOpen() && !UI.panelOpen()) this.requestLock();
     this.keys[k] = down;
     if (!G.started) return;
     if (k === 'KeyH') { if (down !== G.whistle) setWhistle(down); e.preventDefault(); return; }
@@ -169,6 +212,7 @@ const PLAYER = {
       if (this.hover) { this.hover = null; UI.setHover(null); }
       return;
     }
+    this.applyLook(dt);
     // walking
     const K = this.keys; let fx = 0, fz = 0;
     if (!UI.modalOpen()) { if (K.KeyW) fz -= 1; if (K.KeyS) fz += 1; if (K.KeyA) fx -= 1; if (K.KeyD) fx += 1; }
@@ -195,7 +239,8 @@ const PLAYER = {
     camera.position.y = this.eye + (moving ? Math.sin(this.bob * 2) * 0.022 : 0);
     camera.rotation.set(this.pitch, 0, 0);
     // hover
-    const h = this.locked || this.lockFailed || !this.drag ? this.pick(this.locked ? null : this.mouseEvent()) : null;
+    // only point at things with the crosshair (captured) or the cursor (drag-look fallback)
+    const h = this.locked ? this.pick(null) : this.lockFailed && !this.drag ? this.pick(this.mouseEvent()) : null;
     const ia = h ? h.object.userData.ia : null;
     if (ia !== this.hover) { this.hover = ia; UI.setHover(ia); }
   },

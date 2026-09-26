@@ -194,7 +194,7 @@ function buildMessChair(B, M, x, z, ry) {
   for (const [lx, lz] of [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]]) { const [px, pz] = L(lx, lz); B.cyl(M.chrome, 0.015, 0.015, 0.45, px, 0.225, pz, 8); }
   const [sx, sz] = L(0, 0), [bx, bz] = L(0, 0.22);
   B.add(new RoundedBoxGeometry(0.46, 0.08, 0.46, 2, 0.03), up, MX(sx, 0.48, sz, 0, ry, 0));
-  B.add(new RoundedBoxGeometry(0.44, 0.42, 0.06, 2, 0.025), up, MX(bx, 0.76, bz, -0.1, ry, 0));
+  B.add(new RoundedBoxGeometry(0.44, 0.42, 0.06, 2, 0.025), up, MX(bx, 0.76, bz, 0.1, ry, 0));   // reclined backwards
   for (const lx of [-0.2, 0.2]) { const [px, pz] = L(lx, 0.22); B.cyl(M.chrome, 0.012, 0.012, 0.4, px, 0.66, pz, 8); }
 }
 
@@ -512,7 +512,7 @@ function addBridgeDetails(bg, M, B) {
     for (const dx of [-tw / 2, tw / 2]) B.box(M.teak, 0.03, 0.035, td, tx + dx, 0.78, tz);
     for (const dx of [-0.6, 0.6]) { B.cyl(M.chrome, 0.035, 0.035, 0.72, tx + dx, 0.36, tz, 10); B.cyl(M.chrome, 0.2, 0.22, 0.03, tx + dx, 0.015, tz, 16); }
     addCollider(tx - tw / 2 - 0.05, tx + tw / 2 + 0.05, tz - td / 2 - 0.05, tz + td / 2 + 0.05);
-    for (const dx of [-0.45, 0.45]) { buildMessChair(B, M, tx + dx, tz - 0.85, 0); buildMessChair(B, M, tx + dx, tz + 0.85, Math.PI); }
+    for (const dx of [-0.45, 0.45]) { buildMessChair(B, M, tx + dx, tz - 0.85, Math.PI); buildMessChair(B, M, tx + dx, tz + 0.85, 0); }   // backrests away from the table
     addCollider(tx - 1.0, tx + 1.0, tz - 1.15, tz - 0.6); addCollider(tx - 1.0, tx + 1.0, tz + 0.6, tz + 1.15);
     // things on the table: mugs, a chart folio, walkie-talkie
     B.cyl(std(0xffffff, 0.4), 0.04, 0.035, 0.1, tx - 0.5, 0.815, tz - 0.2, 12);

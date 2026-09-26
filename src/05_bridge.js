@@ -554,8 +554,12 @@ function buildChair(parent, x, z, M) {
   b.cyl(M.black, 0.075, 0.075, 0.18, 0, 0.72, 0, 12);
   b.add(new THREE.TorusGeometry(0.2, 0.018, 8, 24, Math.PI), M.chairBase, MX(0, 0.36, -0.08, -Math.PI / 2, 0, 0));
   b.add(new RoundedBoxGeometry(0.56, 0.14, 0.54, 3, 0.05), M.chair, MX(0, 0.86, 0));
-  b.add(new RoundedBoxGeometry(0.52, 0.72, 0.13, 3, 0.05), M.chair, MX(0, 1.3, 0.27, -0.14));
-  b.add(new RoundedBoxGeometry(0.34, 0.2, 0.12, 3, 0.05), M.chair, MX(0, 1.78, 0.34, -0.14));
+  // backrest reclined 8° (the chair faces -z, so a positive x-rotation tips its top aft);
+  // the headrest sits on the same axis, overlapping the top edge of the backrest
+  const recline = 0.14, along = (d) => [1.3 + d * Math.cos(recline), 0.27 + d * Math.sin(recline)];
+  b.add(new RoundedBoxGeometry(0.52, 0.72, 0.13, 3, 0.05), M.chair, MX(0, 1.3, 0.27, recline));
+  const [hy, hz] = along(0.44);
+  b.add(new RoundedBoxGeometry(0.34, 0.2, 0.12, 3, 0.05), M.chair, MX(0, hy, hz, recline));
   for (const sx of [-1, 1]) { b.add(new RoundedBoxGeometry(0.09, 0.07, 0.42, 2, 0.03), M.chair, MX(sx * 0.31, 1.07, 0.02)); b.box(M.chairBase, 0.04, 0.16, 0.04, sx * 0.31, 0.97, 0.15); }
   b.build(g, { cast: true, dynamic: true });
   parent.add(g);

@@ -4,7 +4,7 @@
 const UI = {
   zoomKey: null, crewSel: null, toasts: [], hudT: 0,
   KEYS: [
-    ['h', 'On the bridge'], ['W A S D', 'Walk  (Shift = hurry)'], ['Mouse', 'Look around (click the view once to capture the mouse)'], ['Click', 'Use the button / lever under the crosshair'], ['Space', 'Full-screen view of the screen / chart under the crosshair (Space again closes, wheel or − + changes range)'], ['Right mouse / B', 'Binoculars'], ['1 2 3 4', 'Jump: centre console · port wing · stbd wing · chart table'], ['V', 'External camera (drag to orbit, wheel to zoom)'],
+    ['h', 'On the bridge'], ['W A S D', 'Walk  (Shift = hurry)'], ['Mouse', 'Look around (always on — Esc pauses; mouse settings in the pause menu)'], ['Click', 'Use the button / lever under the crosshair'], ['Space', 'Full-screen view of the screen / chart under the crosshair (Space again closes, wheel or − + changes range)'], ['Right mouse / B', 'Binoculars'], ['1 2 3 4', 'Jump: centre console · port wing · stbd wing · chart table'], ['V', 'External camera (mouse orbits, wheel zooms)'],
     ['h', 'Ship handling'], ['↑ / ↓', 'Engine telegraph (both engines) one notch'], ['← / →', 'Helm order 5° (Shift 10°) — or autopilot ±1° in AUTO'], ['X', 'Midships'], ['Q / E', 'Bow thrusters to port / starboard (25 %)'], ['Z', 'Thrusters zero'], ['T', 'Tug orders panel'], ['H (hold)', 'Ship\'s whistle'],
     ['h', 'Command'], ['Tab', 'Crew orders — delegate to your officers'], ['M R C G', 'Full-screen ECDIS · radar · conning · docking'], ['[ / ]', 'Time compression ×1 … ×8'], ['P', 'Pause'], ['Ctrl / ⌘ + S', 'Save the game (also autosaves every 90 s)'], ['J / K', 'Hide mission panel / status bar'],
   ],
@@ -18,7 +18,7 @@ const UI = {
       });
     });
     $('startKeys').innerHTML = this.keysHTML();
-    $('btnStart').addEventListener('click', () => startGame());
+    $('btnStart').addEventListener('click', () => { PLAYER.requestLock(true); startGame(); });   // mouse-look from the first frame
     $('btnResume').addEventListener('click', () => this.togglePause(false));
     $('btnRestart').addEventListener('click', () => location.reload());
     $('btnSave').addEventListener('click', () => { SAVE.save(false); });
@@ -29,6 +29,16 @@ const UI = {
     $('btnHelp').addEventListener('click', () => this.showHelp());
     $('missionToggle').addEventListener('click', () => $('mission').classList.toggle('collapsed'));
     $('help').addEventListener('click', (e) => { if (e.target.id === 'help' || e.target.dataset.close) $('help').classList.add('hidden'); });
+    // whenever the last menu / panel closes, hand the mouse back to mouse-look
+    const mo = new MutationObserver(() => { if (G.started) setTimeout(() => PLAYER.recapture(), 0); });
+    for (const id of ['crewMenu', 'tugPanel', 'help', 'pause', 'debrief']) mo.observe($(id), { attributes: true, attributeFilter: ['class'] });
+    // mouse settings in the pause menu
+    const ms = $('mouseSens'), mi = $('mouseInvert'), msm = $('mouseSmooth'), mv = $('mouseSensV');
+    const showMouse = () => { ms.value = Math.log2(PLAYER.opts.sens); mv.textContent = PLAYER.opts.sens.toFixed(2) + '×'; mi.checked = PLAYER.opts.invert; msm.checked = PLAYER.opts.smooth; };
+    PLAYER.loadOpts(); showMouse();
+    ms.oninput = () => { PLAYER.opts.sens = Math.round(Math.pow(2, +ms.value) * 100) / 100; PLAYER.saveOpts(); showMouse(); };
+    mi.onchange = () => { PLAYER.opts.invert = mi.checked; PLAYER.saveOpts(); };
+    msm.onchange = () => { PLAYER.opts.smooth = msm.checked; PLAYER.saveOpts(); };
     const tc = $('tcButtons'); [1, 2, 4, 8].forEach((v) => { const b = document.createElement('button'); b.textContent = '×' + v; b.dataset.v = v; b.onclick = () => { G.timeScale = v; this.refreshTC(); }; tc.appendChild(b); });
     this.refreshTC();
   },
@@ -36,11 +46,14 @@ const UI = {
   refreshTC() { document.querySelectorAll('#tcButtons button').forEach((b) => b.classList.toggle('on', +b.dataset.v === G.timeScale)); },
   setTimeScale(d) { const v = [1, 2, 4, 8]; let i = v.indexOf(G.timeScale); i = clamp(i + d, 0, 3); G.timeScale = v[i]; this.refreshTC(); this.toast('Time compression ×' + G.timeScale, 'info'); },
   showHUD() { ['crosshair', 'mission', 'topright', 'statusbar', 'lookhint'].forEach((k) => $(k).classList.remove('hidden')); if (CFG.assist === 'off') $('statusbar').classList.add('hidden'); },
-  lockChanged(locked) { $('lookhint').classList.toggle('hidden', locked || PLAYER.lockFailed || G.mode !== 'bridge'); if (PLAYER.lockFailed) $('lookhint').innerHTML = 'Drag to look around · click controls directly'; },
-  modeChanged() { $('crosshair').classList.toggle('hidden', G.mode !== 'bridge'); this.lockChanged(PLAYER.locked); if (G.mode === 'orbit') this.toast('External view — drag to orbit, wheel to zoom, V to return', 'info'); },
+  lockChanged(locked) {
+    $('lookhint').classList.toggle('hidden', locked || PLAYER.lockFailed || G.mode !== 'bridge' || this.modalOpen());
+    $('crosshair').classList.toggle('idle', !locked && !PLAYER.lockFailed); if (PLAYER.lockFailed) $('lookhint').innerHTML = 'Drag to look around · click controls directly'; },
+  modeChanged() { $('crosshair').classList.toggle('hidden', G.mode !== 'bridge'); this.lockChanged(PLAYER.locked); if (G.mode === 'orbit') this.toast('External view — move the mouse to orbit, wheel to zoom, V to return', 'info'); },
   zoomOpen() { return !$('zoomView').classList.contains('hidden'); },
+  panelOpen() { return !$('tugPanel').classList.contains('hidden'); },
   modalOpen() { return !$('crewMenu').classList.contains('hidden') || !$('zoomView').classList.contains('hidden') || !$('help').classList.contains('hidden') || !$('pause').classList.contains('hidden') || !$('debrief').classList.contains('hidden') || !$('start').classList.contains('hidden'); },
-  releaseMouse() { if (document.pointerLockElement) document.exitPointerLock(); },
+  releaseMouse() { PLAYER.release(); },
   handleKey(e) {
     if (e.code === 'Escape') {
       if (!$('zoomView').classList.contains('hidden')) { this.closeZoom(); return true; }

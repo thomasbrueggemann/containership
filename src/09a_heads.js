@@ -3,11 +3,58 @@
 // example asset, CC-BY). The scan has closed eyes: we cut the eyelids open,
 // seat textured eyeballs, grow a fitted hair cap and repaint skin per person.
 // Falls back to the procedural head if the asset cannot be loaded.
+// Female crew get the head & hair of the "female02" figure (Reallusion iClone, three.js
+// example asset) – the male scan cannot be morphed convincingly into a woman.
 // ============================================================================
 const HEADS = {
-  ready: false, S: 0.048,
+  ready: false, femaleReady: false, S: 0.048,
   BASE: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/LeePerrySmith/',
-  async load() {
+  FEMALE: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/obj/female02/',
+  load() { return Promise.all([this.loadScan(), this.loadFemale()]); },
+  async loadFemale() {
+    try {
+      const B = this.FEMALE, tl = new THREE.TextureLoader();
+      const [obj, face, hair] = await Promise.all([new OBJLoader().loadAsync(B + 'female02.obj'), tl.loadAsync(B + '02_-_Default1noCulling.JPG'), tl.loadAsync(B + '01_-_Default1noCulling.JPG')]);
+      // collect the face/neck (material 02) and hair (material 01) parts; material 03 is her dress & body
+      const parts = { face: [], hair: [] };
+      obj.traverse((m) => {
+        if (!m.isMesh) return;
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        const groups = m.geometry.groups.length ? m.geometry.groups : [{ start: 0, count: m.geometry.attributes.position.count, materialIndex: 0 }];
+        for (const g of groups) {
+          const name = mats[g.materialIndex || 0].name;
+          const kind = /__02_/.test(name) ? 'face' : /__01_/.test(name) ? 'hair' : null;
+          if (!kind) continue;
+          const sub = new THREE.BufferGeometry();
+          for (const k of ['position', 'normal', 'uv']) { const a = m.geometry.attributes[k]; sub.setAttribute(k, new THREE.BufferAttribute(a.array.slice(g.start * a.itemSize, (g.start + g.count) * a.itemSize), a.itemSize)); }
+          parts[kind].push(sub);
+        }
+      });
+      // model units are cm, face towards +z, eyes at (-0.57, 156.1, 13.85) / (5.87, 156.66, 14.35):
+      // centre the eyes, level the slight head tilt, turn to face -z and match the scan heads' eye point
+      const M = new THREE.Matrix4().makeTranslation(0, -0.06, -0.085)
+        .multiply(new THREE.Matrix4().makeScale(0.0102, 0.0102, 0.0102))
+        .multiply(new THREE.Matrix4().makeRotationY(Math.PI + Math.atan2(0.5, 6.44)))
+        .multiply(new THREE.Matrix4().makeRotationZ(-Math.atan2(0.56, 6.44)))
+        .multiply(new THREE.Matrix4().makeTranslation(-2.65, -156.38, -14.1));
+      const merge = (list) => { const g = mergeGeometries(list, false); g.applyMatrix4(M); g.computeBoundingSphere(); return g; };
+      for (const t of [face, hair]) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; }
+      this.fem = { face: merge(parts.face), hair: merge(parts.hair), faceTex: face, hairTex: hair };
+      // skin colour for the hands: average of a plain patch of cheek (clear of the painted blush)
+      const c = makeCanvas(1, 1), x = c.getContext('2d'); x.drawImage(face.image, 82, 162, 16, 16, 0, 0, 1, 1);
+      const p = x.getImageData(0, 0, 1, 1).data; this.fem.skin = new THREE.Color(`rgb(${p[0]},${p[1]},${p[2]})`);
+      this.femaleReady = true;
+    } catch (e) { console.warn('Female head unavailable – using the adapted scan', e); }
+  },
+  buildFemale(o) {
+    const F = this.fem, grp = new THREE.Group();
+    grp.scale.setScalar(o.headScale || 1);
+    const face = new THREE.Mesh(F.face, new THREE.MeshStandardMaterial({ map: F.faceTex, roughness: 0.55, envMapIntensity: 0.5, side: THREE.DoubleSide }));
+    const hair = new THREE.Mesh(F.hair, new THREE.MeshStandardMaterial({ map: F.hairTex, roughness: 0.7, envMapIntensity: 0.4, side: THREE.DoubleSide }));
+    for (const m of [face, hair]) { m.castShadow = true; m.receiveShadow = true; grp.add(m); }
+    return { group: grp, skin: F.skin.clone(), eyes: [] };
+  },
+  async loadScan() {
     try {
       const img = (url) => new Promise((res, rej) => { const i = new Image(); i.crossOrigin = 'anonymous'; i.onload = () => res(i); i.onerror = rej; i.src = url; });
       const [gltf, col, nrm] = await Promise.all([
@@ -99,11 +146,14 @@ const HEADS = {
     });
   },
   hairGeo(style, female) {
-    const th = { short: [0.2, 0.08], side: [0.3, 0.12], bun: [0.26, 0.12], crop: [0.07, 0.05], grey: [0.14, 0.07], receding: [0.12, 0.06] }[style] || [0.2, 0.08];
+    const th = { short: [0.2, 0.08], side: [0.3, 0.12], bun: [0.26, 0.12], bob: [0.28, 0.16], crop: [0.07, 0.05], grey: [0.14, 0.07], receding: [0.12, 0.06] }[style] || [0.2, 0.08];
     const P = female ? this.femaleGeo().attributes.position : this.P, N = this.N;
     // long hair pulled back: a lower line over the temples and the tops of the ears, down to the nape
-    const long = style === 'bun';
-    const hl = long ? (x, y, z) => { let d = this.hairline(x, y, z) - (z > 1.1 ? 0.08 : 0); if (Math.abs(x) > 1.5 && z > -1.0 && z < 1.2) d = Math.max(d, y - 1.95); if (z < -0.9) d = Math.max(d, y - 0.35); return d; } : this.hairline;
+    const long = style === 'bun' || style === 'bob';
+    // bob: the sides come down over the ears, the back to the nape
+    const hl = long ? (x, y, z) => { let d = this.hairline(x, y, z) - (z > 1.1 ? 0.08 : 0);
+      // bob: higher, side-parted front hairline with the fringe swept across to one side
+      if (style === 'bob' && z > 0.9) d += (-0.34 + 0.46 * smooth(-0.9, 1.3, x + 0.1)) * smooth(0.9, 1.5, z); if (Math.abs(x) > 1.4 && z > -1.0 && z < 1.2) d = Math.max(d, y - (style === 'bob' ? 0.6 : 1.95)); if (z < -0.9) d = Math.max(d, y - (style === 'bob' ? -0.8 : 0.35)); return d; } : this.hairline;
     let idx = this.hairIdx;
     if (long) {
       idx = []; const K = this.keepIdx, c = (i0, i1, i2, f) => (f(i0) + f(i1) + f(i2)) / 3;
@@ -158,10 +208,25 @@ const HEADS = {
       }
       x.restore();
     }
-    if (o.lips) {
-      // a touch of colour on the lips and cheeks
-      x.save(); x.filter = 'blur(6px)'; x.fillStyle = o.lips; x.beginPath(); x.ellipse(512, 480, 62, 20, 0, 0, 7); x.fill(); x.restore();
-      x.save(); x.filter = 'blur(30px)'; x.fillStyle = 'rgba(200,90,90,0.10)'; for (const cx of [380, 644]) { x.beginPath(); x.ellipse(cx, 420, 60, 40, 0, 0, 7); x.fill(); } x.restore();
+    if (o.female) {
+      // the scan is a man: paint out the heavy brows and sideburn stubble...
+      x.save(); x.filter = 'blur(14px)'; x.fillStyle = skinCol;
+      for (const bx of [420, 600]) { x.beginPath(); x.ellipse(bx, 262, 78, 26, 0, 0, 7); x.fill(); }
+      for (const bx of [335, 690]) { x.beginPath(); x.ellipse(bx, 410, 55, 80, 0, 0, 7); x.fill(); }
+      x.restore();
+      // ...then thin arched brows, lined eyes, shaped lips and a little blush
+      x.save(); x.strokeStyle = 'rgba(40,22,14,0.85)'; x.lineCap = 'round'; x.filter = 'blur(1.2px)';
+      for (const s of [-1, 1]) {
+        const c = 512 + s * 90;
+        x.lineWidth = 7; x.beginPath(); x.moveTo(c - s * 50, 272); x.quadraticCurveTo(c + s * 5, 244, c + s * 52, 262); x.stroke();
+        x.lineWidth = 5; x.strokeStyle = 'rgba(20,10,8,0.8)'; x.beginPath(); x.moveTo(c - s * 42, 300); x.quadraticCurveTo(c, 286, c + s * 44, 296); x.lineTo(c + s * 54, 290); x.stroke();
+        x.strokeStyle = 'rgba(40,22,14,0.85)';
+      }
+      x.restore();
+      x.save(); x.filter = 'blur(10px)'; x.fillStyle = 'rgba(110,70,90,0.18)'; for (const s of [-1, 1]) { x.beginPath(); x.ellipse(512 + s * 88, 284, 46, 14, 0, 0, 7); x.fill(); } x.restore();
+      x.save(); x.filter = 'blur(3px)'; x.fillStyle = o.lips || 'rgba(170,60,75,0.5)';
+      x.beginPath(); x.moveTo(452, 480); x.quadraticCurveTo(482, 458, 512, 466); x.quadraticCurveTo(542, 458, 572, 480); x.quadraticCurveTo(512, 506, 452, 480); x.fill(); x.restore();
+      x.save(); x.filter = 'blur(30px)'; x.fillStyle = 'rgba(210,90,100,0.16)'; for (const bx of [385, 640]) { x.beginPath(); x.ellipse(bx, 420, 55, 38, 0, 0, 7); x.fill(); } x.restore();
     }
     // brows & lash line in the person's hair colour
     // skin tone
@@ -201,16 +266,26 @@ const HEADS = {
     return canvasTexture(c);
   },
   // Softer, narrower jaw and chin for female crew (the scan is a male head).
+  // Feminised variant of the (male) scan: narrower jaw and chin, finer nose, flatter brow ridge,
+  // slimmer neck. Scan units: face towards +z, eyes at y ≈ 1.65, nose tip z ≈ 2.6, centre line x ≈ -0.1.
   femaleGeo() {
     if (this._fem) return this._fem;
-    const P = this.P.clone(), ey = (this.eyes[0].y + this.eyes[1].y) / 2;
+    const P = this.P.clone(), ey = (this.eyes[0].y + this.eyes[1].y) / 2, cx = (this.eyes[0].x + this.eyes[1].x) / 2;
     for (let i = 0; i < P.count; i++) {
-      const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
-      const low = smooth(ey - 0.5, ey - 2.4, y);                  // 0 below the eyes → 1 at the chin
-      const k = 1 - 0.13 * low;
-      P.setX(i, x * k);
-      if (z > 0.6) P.setZ(i, z - 0.12 * low * smooth(0.6, 1.8, z)); // less prominent chin
-      if (y > ey + 0.3 && z > 1.2) P.setZ(i, P.getZ(i) - 0.06 * smooth(ey + 0.3, ey + 0.9, y) * (1 - smooth(ey + 1.4, ey + 2.2, y))); // softer brow ridge
+      let x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+      const dx = x - cx;
+      // jaw & cheeks taper towards a smaller, rounder chin
+      const low = smooth(ey - 0.6, ey - 2.6, y);
+      x = cx + dx * (1 - 0.17 * low);
+      if (z > 0.8) z -= 0.22 * smooth(ey - 1.3, ey - 2.8, y) * smooth(0.8, 2.0, z);
+      // finer, shorter nose (kept clear of the eye openings)
+      const nose = smooth(2.05, 2.35, z) * (1 - smooth(0.12, 0.5, Math.abs(dx))) * smooth(ey - 1.0, ey - 0.4, y) * (1 - smooth(ey + 0.1, ey + 0.4, y));
+      x = cx + (x - cx) * (1 - 0.2 * nose); z -= (z - 2.05) * 0.28 * nose;
+      // flatter brow ridge and smoother forehead
+      if (z > 1.3) z -= 0.14 * smooth(ey + 0.25, ey + 0.7, y) * (1 - smooth(ey + 1.1, ey + 2.0, y)) * smooth(1.3, 2.0, z);
+      // slimmer neck
+      if (y < ey - 2.6) { const k = 1 - 0.12 * smooth(ey - 2.6, ey - 3.3, y); x = cx + (x - cx) * k; z = -0.3 + (z + 0.3) * k; }
+      P.setXYZ(i, x, y, z);
     }
     const g = this.headGeo.clone(); g.setAttribute('position', P);
     return (this._fem = g);
@@ -239,6 +314,16 @@ const HEADS = {
     if (o.hairStyle && o.hairStyle !== 'bald') {
       const hm = new THREE.MeshStandardMaterial({ map: this.hairTexture(o.hairCol || '#2a1c12', o.seed || 1, o.female), vertexColors: true, alphaTest: 0.5, roughness: 0.75, metalness: 0.0 });
       const hair = new THREE.Mesh(this.hairGeo(o.hairStyle, o.female), hm); hair.castShadow = true; inner.add(hair);
+      if (o.hairStyle === 'bob') {
+        // shoulder-length hair: a tapered curtain around the sides and back, open at the face
+        const cm = new THREE.MeshStandardMaterial({ map: this.hairTexture(o.hairCol || '#2a1c12', (o.seed || 1) + 5, true), color: 0x9a9a9a, roughness: 0.8, envMapIntensity: 0.5, side: THREE.DoubleSide });
+        const ang = 1.05, cur = new THREE.Mesh(new THREE.CylinderGeometry(1.85, 2.2, 3.4, 40, 6, true, ang, Math.PI * 2 - 2 * ang), cm);
+        // gather the curtain in slightly towards the shoulders and give the ends a soft curve inwards
+        const q = cur.geometry.attributes.position;
+        for (let i = 0; i < q.count; i++) { const y = q.getY(i), t = smooth(-1.7, 1.7, y); const k = 1 + 0.07 * Math.sin(t * Math.PI) - 0.08 * (1 - smooth(-1.7, -1.1, y)); q.setX(i, q.getX(i) * k); q.setZ(i, q.getZ(i) * k * 1.12); }
+        cur.geometry.computeVertexNormals();
+        cur.position.set((this.eyes[0].x + this.eyes[1].x) / 2, 0.75, -0.15); cur.castShadow = true; inner.add(cur);
+      }
       if (o.hairStyle === 'bun') {
         // hair gathered into a low bun at the back of the head
         const bm = new THREE.MeshStandardMaterial({ map: this.hairTexture(o.hairCol || '#2a1c12', (o.seed || 1) + 7, true), roughness: 0.75 });

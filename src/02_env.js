@@ -130,6 +130,69 @@ function buildEnvironment() {
   return ENV;
 }
 
+// ---------------------------------------------------------------- swell
+// A few long-crested wave trains running downwind. The same function displaces the water mesh
+// (GPU), floats wakes and foam, and moves the ship, small craft and buoys (CPU), so they all ride
+// the same waves. Waves fade out with distance from the camera (the far sea keeps its shading)
+// and are much reduced inside the breakwaters.
+const SWELL = {
+  TRAINS: [[175, 0, 1.0, 0.3], [128, 22, 0.8, 2.1], [96, -18, 0.6, 4.0], [72, 40, 0.45, 5.2]], // λ [m], Δdir [°], weight, phase
+  waves: [], cam: new THREE.Vector3(),
+  U: { uSwA: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uSwB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uSwAmp: { value: 0 } },
+  GLSL: `
+    uniform vec4 uSwA[4]; uniform vec4 uSwB[4]; uniform float uSwAmp;
+    // xyz = height, d/dx, d/dz at world p, faded with distance from the camera
+    vec3 swell(vec2 p, float dist, float t){
+      vec3 r = vec3(0.0);
+      float sh = uSwAmp * (1.0 - 0.85 * smoothstep(-3200.0, -2500.0, p.x));
+      for (int i = 0; i < 4; i++) {
+        vec4 a = uSwA[i], b = uSwB[i];
+        float A = b.x * sh * (1.0 - smoothstep(b.z * 8.0, b.z * 25.0, dist));
+        float ph = a.z * dot(a.xy, p) - a.w * t + b.y;
+        r.x += A * sin(ph); r.yz += a.xy * (a.z * A * cos(ph));
+      }
+      return r;
+    }`,
+  // windTo: direction the wind blows towards, world-frame angle as used by the ocean shader
+  init(windAng) {
+    this.waves = this.TRAINS.map(([lam, dd, w, ph], i) => {
+      const a = windAng + dd * DEG, k = 2 * Math.PI / lam;
+      const W = { dx: Math.cos(a), dz: Math.sin(a), k, w: Math.sqrt(9.81 * k), wt: w, ph, lam };
+      this.U.uSwA.value[i].set(W.dx, W.dz, k, W.w); this.U.uSwB.value[i].set(w, ph, lam, 0);
+      return W;
+    });
+  },
+  setAmp(a) { this.U.uSwAmp.value = a; },
+  height(x, z, t = G.realT) {
+    const sh = this.U.uSwAmp.value * (1 - 0.85 * smooth(-3200, -2500, x));
+    if (!sh) return 0;
+    const dist = Math.hypot(x - this.cam.x, z - this.cam.z);
+    let h = 0;
+    for (const W of this.waves) h += W.wt * sh * (1 - smooth(W.lam * 8, W.lam * 25, dist)) * Math.sin(W.k * (W.dx * x + W.dz * z) - W.w * t + W.ph);
+    return h;
+  },
+};
+// Places a small craft on the swell: heave from the average, pitch and roll from the local slope.
+function rideSwell(grp, x, z, psi, L, B, extraY = 0, extraRoll = 0) {
+  const fx = Math.sin(psi) * L / 2, fz = -Math.cos(psi) * L / 2, sx = Math.cos(psi) * B / 2, sz = Math.sin(psi) * B / 2;
+  const hb = SWELL.height(x + fx, z + fz), ha = SWELL.height(x - fx, z - fz), hs = SWELL.height(x + sx, z + sz), hp = SWELL.height(x - sx, z - sz);
+  grp.rotation.order = 'YXZ';
+  grp.position.set(x, (hb + ha + hs + hp) / 4 + extraY, z);
+  grp.rotation.set(Math.atan2(hb - ha, L), -psi, Math.atan2(hs - hp, B) * 0.85 + extraRoll);
+}
+// Camera-centred polar grid: dense near the viewer (swell geometry), sparse out to the horizon.
+function oceanGeometry(rings, segs, rMax) {
+  const pos = [0, 0, 0], idx = [], a = Math.log(rMax / 2 + 1) / rings;
+  for (let j = 1; j <= rings; j++) { const r = 2 * (Math.exp(j * a) - 1); for (let i = 0; i < segs; i++) { const t = i / segs * Math.PI * 2; pos.push(Math.cos(t) * r, 0, Math.sin(t) * r); } }
+  for (let i = 0; i < segs; i++) idx.push(0, 1 + (i + 1) % segs, 1 + i);
+  for (let j = 0; j < rings - 1; j++) for (let i = 0; i < segs; i++) {
+    const a0 = 1 + j * segs + i, a1 = 1 + j * segs + (i + 1) % segs, b0 = a0 + segs, b1 = a1 + segs;
+    idx.push(a0, a1, b0, a1, b1, b0);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+  return g;
+}
+
 // ---------------------------------------------------------------- ocean
 function buildOcean() {
   const P = ENV.P;
@@ -142,15 +205,19 @@ function buildOcean() {
   }]);
   uniforms.uEnv.value = ENV.cubeRT.texture;
   uniforms.uRipple.value = rippleNormalTexture();
+  Object.assign(uniforms, SWELL.U);                 // shared with the wake material and the CPU
   const mat = new THREE.ShaderMaterial({
     uniforms, fog: true,
     vertexShader: `
       #include <common>
       #include <fog_pars_vertex>
       #include <logdepthbuf_pars_vertex>
+      uniform float uTime;
       varying vec3 vWorld;
+      ${SWELL.GLSL}
       void main(){
         vec4 wp = modelMatrix * vec4(position, 1.0);
+        wp.y += swell(wp.xz, distance(wp.xz, cameraPosition.xz), uTime).x;
         vWorld = wp.xyz;
         vec4 mvPosition = viewMatrix * wp;
         gl_Position = projectionMatrix * mvPosition;
@@ -165,6 +232,7 @@ function buildOcean() {
       uniform samplerCube uEnv; uniform sampler2D uRefl; uniform sampler2D uRipple; uniform mat4 uTexMatrix;
       uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uDeep; uniform vec3 uSkyAmb;
       varying vec3 vWorld;
+      ${SWELL.GLSL}
       float h1(float n){ return fract(sin(n * 12.9898) * 43758.5453); }
       float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
         float a = h1(dot(i, vec2(1.0, 57.0))), b = h1(dot(i + vec2(1.0, 0.0), vec2(1.0, 57.0)));
@@ -180,7 +248,9 @@ function buildOcean() {
         float pix = dist * 0.0017 / max(V.y, 0.06);
         // wind patches / cat's paws: slow large-scale modulation of the short waves
         float patchy = 0.45 + 1.1 * vn(p / 850.0 + uTime * vec2(0.0035, 0.002)) * (0.6 + 0.8 * vn(p / 230.0 - uTime * 0.005));
-        vec2 slope = vec2(0.0); float h = 0.0, hsq = 0.0, lost = 0.0;
+        // swell slope (matches the displaced geometry exactly)
+        vec3 sw = swell(p, length(cameraPosition.xz - p), uTime);
+        vec2 slope = sw.yz; float h = 0.0, hsq = 0.0, lost = 0.0;
         float wl = 170.0;
         for (int i = 0; i < 34; i++) {
           float fi = float(i);
@@ -245,8 +315,7 @@ function buildOcean() {
         #include <fog_fragment>
       }`,
   });
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(120000, 120000, 1, 1), mat);
-  water.rotation.x = -Math.PI / 2;
+  const water = new THREE.Mesh(CFG.quality === 'low' ? oceanGeometry(150, 200, 60000) : oceanGeometry(240, 360, 60000), mat);
   water.frustumCulled = false;
   water.renderOrder = -1;
   scene.add(water);
@@ -340,12 +409,15 @@ class Wake {
     if (Wake._mat) return Wake._mat;
     Wake._mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
-      uniforms: { uFoam: { value: ENV.foamTex }, uLight: { value: new THREE.Color(ENV.night ? 0.05 : 0.95, ENV.night ? 0.06 : 0.97, ENV.night ? 0.07 : 1.0) }, uTime: { value: 0 } },
+      uniforms: { uFoam: { value: ENV.foamTex }, uLight: { value: new THREE.Color(ENV.night ? 0.05 : 0.95, ENV.night ? 0.06 : 0.97, ENV.night ? 0.07 : 1.0) }, uTime: { value: 0 }, ...SWELL.U },
       vertexShader: `
         #include <common>
         #include <logdepthbuf_pars_vertex>
-        attribute float aAlpha; varying float vA; varying vec2 vW; varying vec2 vUv;
+        attribute float aAlpha; varying float vA; varying vec2 vW; varying vec2 vUv; uniform float uTime;
+        ${SWELL.GLSL}
+        // wakes and foam patches sit on the water surface wherever they are (also those carried by the ship)
         void main(){ vA = aAlpha; vUv = uv; vec4 wp = modelMatrix*vec4(position,1.0); vW = wp.xz;
+          wp.y = 0.32 + swell(wp.xz, distance(wp.xz, cameraPosition.xz), uTime).x;
           gl_Position = projectionMatrix*viewMatrix*wp;
           #include <logdepthbuf_vertex>
         }`,

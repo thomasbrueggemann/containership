@@ -51,13 +51,18 @@ const PHYS_ENV = {
 
 function updateShipVisual(dt) {
   const s = G.ship, g = G.shipGroup;
-  const swell = CFG.wind === 'fresh' ? 2.2 : CFG.wind === 'moderate' ? 1.3 : 0.6;
+  const swell = seaState().swell;
   const t = G.realT;
-  // gentle swell response (much reduced inside the breakwaters)
   const sea = swell * (s.x > -2600 ? 0.35 : 1);
-  const roll = clamp(s.u * s.r * 1.1, -0.045, 0.045) + (Math.sin(t * 2 * Math.PI / 13.5) + 0.35 * Math.sin(t * 2 * Math.PI / 21 + 2)) * 0.0045 * sea;
-  const pitch = (Math.sin(t * 2 * Math.PI / 9.2 + 1) + 0.4 * Math.sin(t * 2 * Math.PI / 14.3)) * 0.0014 * sea;
-  g.position.set(s.x, -s.squat * 0.6 + (Math.sin(t * 2 * Math.PI / 10.5) * 0.12 + Math.sin(t * 0.6) * 0.05) * sea, s.z);
+  // ride the actual swell: heave = mean height along the hull, pitch = fitted slope, roll from the
+  // slope across the beam plus the ship's own slow roll (much reduced inside the breakwaters)
+  let hsum = 0, hx = 0, xx = 0;
+  for (let xb = -180; xb <= 180; xb += 45) { const [wx, wz] = s.toWorld(xb, 0), h = SWELL.height(wx, wz); hsum += h; hx += h * xb; xx += xb * xb; }
+  const heave = hsum / 9, [px, pz] = s.toWorld(-60, -27), [sx2, sz2] = s.toWorld(-60, 27);
+  const beam = (SWELL.height(sx2, sz2) - SWELL.height(px, pz)) / 54;
+  const roll = clamp(s.u * s.r * 1.1, -0.045, 0.045) + (Math.sin(t * 2 * Math.PI / 13.5) + 0.35 * Math.sin(t * 2 * Math.PI / 21 + 2)) * 0.0045 * sea + Math.atan(beam) * 0.5;
+  const pitch = Math.atan(hx / xx) * 1.2 + Math.sin(t * 2 * Math.PI / 9.2 + 1) * 0.0005 * sea;
+  g.position.set(s.x, -s.squat * 0.6 + heave * 0.85, s.z);
   g.rotation.set(pitch, -s.psi, roll, 'YXZ');
   if (g.userData.flag) g.userData.flag.rotation.y = Math.PI / 2 + Math.sin(t * 3) * 0.2;
   // wake & foam
@@ -75,14 +80,15 @@ function updateShipVisual(dt) {
 
 function updateEnvFrame() {
   const cp = new THREE.Vector3(); camera.getWorldPosition(cp);
-  ENV.water.position.set(Math.round(cp.x / 100) * 100, 0, Math.round(cp.z / 100) * 100);
+  ENV.water.position.set(Math.round(cp.x / 4) * 4, 0, Math.round(cp.z / 4) * 4);
   ENV.waterMat.uniforms.uTime.value = G.realT;
   if (Wake._mat) Wake._mat.uniforms.uTime.value = G.realT;
   const U = ENV.waterMat.uniforms;
-  U.uSea.value = CFG.wind === 'fresh' ? 1.15 : CFG.wind === 'moderate' ? 0.72 : 0.4;
-  U.uCaps.value = CFG.wind === 'fresh' ? 1.0 : CFG.wind === 'moderate' ? 0.35 : 0.0;
+  const SS = seaState(); U.uSea.value = SS.sea; U.uCaps.value = SS.caps;
   const wTo = G.ship.windFrom + Math.PI; // waves run downwind
   U.uWindAng.value = Math.atan2(-Math.cos(wTo), Math.sin(wTo));
+  if (!SWELL.waves.length) SWELL.init(U.uWindAng.value);
+  SWELL.setAmp(SS.waveA); SWELL.cam.copy(cp);
   // inside the breakwaters the sea is sheltered
   const shelter = G.ship.x > -2600 ? 0.45 : 1; U.uSea.value *= shelter; U.uCaps.value *= shelter;
   // shadow camera follows the bridge
@@ -175,7 +181,7 @@ async function startGame() {
     return;
   }
   $('loading').classList.add('hidden');
-  UI.showHUD();
+  UI.showHUD(); UI.lockChanged(PLAYER.locked);
   G.started = true; G.paused = false;
   clock.getDelta();
   loop();

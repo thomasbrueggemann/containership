@@ -798,7 +798,7 @@ function updateWorld(dt, t) {
   // buoys bobbing & lights
   for (const b of WORLD.buoys) {
     b.bob += dt;
-    b.g.position.y = Math.sin(b.bob * 1.1) * 0.25 - 0.2;
+    b.g.position.y = SWELL.height(b.g.position.x, b.g.position.z) + Math.sin(b.bob * 1.1) * 0.25 - 0.2;
     b.g.rotation.x = Math.sin(b.bob * 0.9) * 0.06; b.g.rotation.z = Math.cos(b.bob * 0.77) * 0.06;
   }
   const dayK = ENV.night ? 1 : CFG.tod === 'golden' ? 0.55 : 0.18;

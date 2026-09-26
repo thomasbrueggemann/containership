@@ -6,6 +6,7 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 
 const DEG = Math.PI / 180, KN = 0.514444, NM = 1852;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -50,7 +51,16 @@ function fmtLat(l) { const d = Math.floor(l), m = (l - d) * 60; return `${d}°${
 function fmtLon(l) { const d = Math.floor(l), m = (l - d) * 60; return `${String(d).padStart(3, '0')}°${m.toFixed(3).padStart(6, '0')}'E`; }
 
 // ---------------------------------------------------------------- settings
-const CFG = { tod: 'morning', wind: 'moderate', traffic: 'on', assist: 'on', voice: 'on', quality: 'high' };
+const CFG = { tod: 'morning', wind: 'moderate', sea: 'moderate', traffic: 'on', assist: 'on', voice: 'on', quality: 'high' };
+// Sea state (Douglas scale): wave slope amplitude, whitecaps, own-ship swell response, small-craft motion
+const SEA_STATES = {
+  // waveA: amplitude [m] of the leading swell train (Hs ≈ 4.2 × waveA: ~0.2 / 0.6 / 1.6 / 5.5 m)
+  calm: { label: 'Calm (1)', sea: 0.32, caps: 0.0, swell: 0.35, bob: 0.35, waveA: 0.05 },
+  slight: { label: 'Slight (3)', sea: 0.58, caps: 0.12, swell: 0.9, bob: 0.8, waveA: 0.15 },
+  moderate: { label: 'Moderate (4)', sea: 0.82, caps: 0.45, swell: 1.5, bob: 1.2, waveA: 0.38 },
+  rough: { label: 'Rough (5–6)', sea: 1.25, caps: 1.0, swell: 3.2, bob: 2.2, waveA: 1.3 },
+};
+const seaState = () => SEA_STATES[CFG.sea] || SEA_STATES.moderate;
 
 // ---------------------------------------------------------------- shared state
 const G = {

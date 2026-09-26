@@ -33,6 +33,12 @@ kbd { display: inline-block; min-width: 1.5em; padding: 0 .4em; border: 1px soli
 #crosshair { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%;
   background: rgba(255,255,255,.85); box-shadow: 0 0 0 1.5px rgba(0,0,0,.45); pointer-events: none; z-index: 5; transition: transform .1s; }
 #crosshair.hot { transform: scale(2.2); background: var(--accent-2); }
+#crosshair.idle { opacity: .35; }
+.mouseopts { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 12px; align-items: center; text-align: left; margin: 0 auto 18px; max-width: 360px; font-size: 13px; color: #c6d4dc; }
+.mouseopts input[type=range] { width: 100%; accent-color: var(--accent); }
+.mouseopts input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+.mouseopts .v { font: 600 12px ui-monospace, Menlo, monospace; color: var(--accent-2); min-width: 44px; text-align: right; }
+.mouseopts .h { grid-column: 1 / -1; font: 600 10.5px ui-monospace, monospace; letter-spacing: .12em; color: var(--muted); text-transform: uppercase; }
 #tooltip { position: fixed; left: 50%; top: calc(50% + 18px); transform: translateX(-50%); pointer-events: none; z-index: 6;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; max-width: 360px;
   font-size: 12.5px; line-height: 1.45; text-align: center; backdrop-filter: blur(6px); }
@@ -213,7 +219,7 @@ kbd { display: inline-block; min-width: 1.5em; padding: 0 .4em; border: 1px soli
   <button id="btnHelp" title="Help (F1)">?</button>
 </div>
 
-<div id="lookhint" class="glass hidden">Click the view to take control · <kbd>Space</kbd> full-screen a display · <kbd>Esc</kbd> releases the mouse</div>
+<div id="lookhint" class="glass hidden">Click or press any key to look around · <kbd>Space</kbd> full-screen a display · <kbd>Esc</kbd> releases the mouse</div>
 <div id="statusbar" class="glass hidden"></div>
 <div id="subs"></div>
 <div id="alerts"></div>
@@ -232,6 +238,10 @@ kbd { display: inline-block; min-width: 1.5em; padding: 0 .4em; border: 1px soli
 <div id="pause" class="overlay hidden"><div class="card glass" style="width:min(460px,92vw);text-align:center">
   <div style="font-size:22px;font-weight:700;margin-bottom:6px">Paused</div>
   <div style="color:var(--muted);font-size:13px;margin-bottom:18px">The ship keeps her way when you resume.</div>
+  <div class="mouseopts"><span class="h">Mouse</span>
+    <label for="mouseSens">Sensitivity</label><input id="mouseSens" type="range" min="-1.6" max="1.6" step="0.05"><span class="v" id="mouseSensV"></span>
+    <label for="mouseInvert">Invert up / down</label><input id="mouseInvert" type="checkbox"><span></span>
+    <label for="mouseSmooth">Smooth movement</label><input id="mouseSmooth" type="checkbox"><span></span></div>
   <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
     <button class="go" id="btnResume">Resume</button><button class="go sec" id="btnSave">Save game</button><button class="go sec" id="btnSaveQuit">Save &amp; quit to menu</button><button class="go sec" id="btnPauseHelp">Controls</button><button class="go sec" id="btnRestart">Restart</button></div></div></div>
 <div id="debrief" class="overlay hidden"><div class="card glass" id="debriefCard" style="width:min(620px,94vw)"></div></div>
@@ -251,6 +261,7 @@ kbd { display: inline-block; min-width: 1.5em; padding: 0 .4em; border: 1px soli
     <div class="opts">
       <div class="opt"><label class="t">Time of day</label><div class="seg" data-k="tod"><button data-v="morning" class="on">Morning</button><button data-v="golden">Golden hour</button><button data-v="night">Night</button></div></div>
       <div class="opt"><label class="t">Wind</label><div class="seg" data-k="wind"><button data-v="light">Light 6 kn</button><button data-v="moderate" class="on">Mod. 14 kn</button><button data-v="fresh">Fresh 24 kn</button></div></div>
+      <div class="opt"><label class="t">Sea state</label><div class="seg" data-k="sea"><button data-v="calm">Calm</button><button data-v="slight">Slight</button><button data-v="moderate" class="on">Moderate</button><button data-v="rough">Rough</button></div></div>
       <div class="opt"><label class="t">Traffic</label><div class="seg" data-k="traffic"><button data-v="on" class="on">On</button><button data-v="off">Off</button></div></div>
       <div class="opt"><label class="t">Guidance</label><div class="seg" data-k="assist"><button data-v="on" class="on">Full guidance</button><button data-v="off">Realistic</button></div></div>
       <div class="opt"><label class="t">Crew voices</label><div class="seg" data-k="voice"><button data-v="on" class="on">Speech</button><button data-v="off">Subtitles</button></div></div>

@@ -27,20 +27,24 @@ function buildHuman(o) {
   const torso = new THREE.Group(); hips.add(torso);
   // contoured torso: superelliptic cross-sections lofted from waist to neck (front is -z)
   const F = o.female ? 1 : 0;
-  const shirtProfile = [[0.02, 0.166 + F * 0.01, 0.114], [0.16, 0.158 - F * 0.02, 0.112], [0.3, 0.176 - F * 0.02, 0.12 + F * 0.01, -0.006], [0.41, 0.196 - F * 0.02, 0.124, -0.01],
-    [0.49, 0.212 - F * 0.02, 0.114, -0.004], [0.535, 0.205 - F * 0.02, 0.1], [0.565, 0.16 - F * 0.015, 0.084], [0.59, 0.095, 0.066], [0.605, 0.066, 0.056]];
+  // body proportions relative to the head: shoulder breadth ≈ 3 head widths (men), a little less for women
+  const W = o.female ? 0.84 : 0.86, D = o.female ? 0.9 : 0.96, AR = o.female ? 0.8 : 0.86, LG = o.female ? 0.86 : 0.92;
+  // scale a loft ring [y, halfWidth, halfDepth, z]; rings at the collar keep their size so the neck still fits
+  const ring = ([y, w, d, z = 0]) => { const t = smooth(0.52, 0.6, y), k = lerp(W, 1, t), kd = lerp(D, 1, t); return [y, w * k, d * kd, z * kd]; };
+  const shirtProfile = [[0.02, 0.166 + F * 0.01, 0.114], [0.16, 0.158 - F * 0.02, 0.112], [0.3, 0.176 - F * 0.02, 0.12, -0.006], [0.41, 0.196 - F * 0.02, 0.124, -0.01],
+    [0.49, 0.212 - F * 0.02, 0.114, -0.004], [0.535, 0.205 - F * 0.02, 0.1], [0.565, 0.16 - F * 0.015, 0.084], [0.59, 0.095, 0.066], [0.605, 0.066, 0.056]].map(ring);
   const chest = new THREE.Mesh(loftGeometry(shirtProfile), o.coverall ? pants : shirt); torso.add(chest);
-  const belly = new THREE.Mesh(loftGeometry([[-0.2, 0.05, 0.06], [-0.165, 0.12, 0.09], [-0.1, 0.162 + F * 0.012, 0.108], [-0.02, 0.176 + F * 0.015, 0.114], [0.06, 0.171 + F * 0.012, 0.116], [0.1, 0.169 + F * 0.01, 0.116]], true), pants); torso.add(belly);
-  if (!o.coverall) { const belt = new THREE.Mesh(loftGeometry([[0.07, 0.172 + F * 0.012, 0.118], [0.105, 0.171 + F * 0.012, 0.118]], false, false), mat(0x111111, 0.4)); torso.add(belt); }
+  const belly = new THREE.Mesh(loftGeometry([[-0.2, 0.05, 0.06], [-0.165, 0.12, 0.09], [-0.1, 0.162 + F * 0.012, 0.108], [-0.02, 0.176 + F * 0.015, 0.114], [0.06, 0.171 + F * 0.012, 0.116], [0.1, 0.169 + F * 0.01, 0.116]].map(ring), true), pants); torso.add(belly);
+  if (!o.coverall) { const belt = new THREE.Mesh(loftGeometry([[0.07, 0.172 + F * 0.012, 0.118], [0.105, 0.171 + F * 0.012, 0.118]].map(ring), false, false), mat(0x111111, 0.4)); torso.add(belt); }
   if (o.vest) { const v = new THREE.Mesh(loftGeometry(shirtProfile.slice(1, 7).map(([y, w, d, z = 0]) => [y, w + 0.018, d + 0.02, z]), false, false), mat(o.vest, 0.6)); v.material.side = THREE.DoubleSide; torso.add(v); }
-  if (o.epaulettes) for (const sx of [-1, 1]) { const e = new THREE.Group(); e.position.set(sx * 0.155, 0.563, 0); e.rotation.z = -sx * 0.42; torso.add(e); e.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.01, 0.11), mat(0x1a2233, 0.5))); for (let k = 0; k < o.epaulettes; k++) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.101, 0.012, 0.012), mat(0xd4a93a, 0.3)); st.position.set(0, 0.002, -0.03 + k * 0.022); e.add(st); } }
-  if (o.radio) { const r = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.035), mat(0x111111)); r.position.set(0.12, 0.44, -0.13); torso.add(r); }
+  if (o.epaulettes) for (const sx of [-1, 1]) { const e = new THREE.Group(); e.position.set(sx * 0.155 * W, 0.563, 0); e.rotation.z = -sx * 0.42; torso.add(e); e.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.01, 0.11), mat(0x1a2233, 0.5))); for (let k = 0; k < o.epaulettes; k++) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.101, 0.012, 0.012), mat(0xd4a93a, 0.3)); st.position.set(0, 0.002, -0.03 + k * 0.022); e.add(st); } }
+  if (o.radio) { const r = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.035), mat(0x111111)); r.position.set(0.12 * W, 0.44, -0.13 * D); torso.add(r); }
   // neck pivot at the base of the neck so nodding/turning keeps the neck seated in the collar
   const head = new THREE.Group(); head.position.y = 0.6; torso.add(head);
   const hc = new THREE.Group(); hc.position.y = 0.16; head.add(hc);
   let eyes = null;
   if (HEADS.ready && !o.procedural) {
-    const hb = HEADS.build(o);
+    const hb = o.female && HEADS.femaleReady ? HEADS.buildFemale(o) : HEADS.build(o);
     hc.add(hb.group); eyes = hb.eyes;
     skin.color.copy(hb.skin).multiplyScalar(0.92);
     if (o.glasses) { const gm = mat(0x151515, 0.3); for (const sx of [-1, 1]) { const l = new THREE.Mesh(new THREE.TorusGeometry(0.021, 0.0028, 6, 18), gm); l.position.set(sx * 0.034, -0.062, -0.103); hc.add(l); const arm = new THREE.Mesh(new THREE.BoxGeometry(0.003, 0.003, 0.1), gm); arm.position.set(sx * 0.058, -0.058, -0.055); hc.add(arm); } const br = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.003, 0.003), gm); br.position.set(0, -0.058, -0.106); hc.add(br); }
@@ -74,25 +78,26 @@ function buildHuman(o) {
     return new THREE.Mesh(g, m);
   };
   const arms = [], legs = [], legTape = [];
-  if (o.coverall) torso.add(new THREE.Mesh(loftGeometry([[0.4, 0.2, 0.128, -0.01], [0.445, 0.207, 0.123, -0.008]], false, false), mat(0xd8dcd8, 0.35)));
+  if (o.coverall) torso.add(new THREE.Mesh(loftGeometry([[0.4, 0.2, 0.128, -0.01], [0.445, 0.207, 0.123, -0.008]].map(ring), false, false), mat(0xd8dcd8, 0.35)));
   for (const sx of [-1, 1]) {
-    const sh = new THREE.Group(); sh.position.set(sx * (o.female ? 0.195 : 0.215), 0.52, 0); torso.add(sh);
-    const ua = limb(0.058, 0.047, 0.24, o.coverall ? pants : shirt); sh.add(ua);
-    const delt = new THREE.Mesh(new THREE.SphereGeometry(0.056, 14, 10), o.coverall ? pants : shirt); delt.scale.set(0.95, 0.9, 1.1); delt.position.set(-sx * 0.012, -0.045, 0); sh.add(delt);
+    const sh = new THREE.Group(); sh.position.set(sx * (o.female ? 0.195 : 0.215) * W, 0.52, 0); torso.add(sh);
+    const ua = limb(0.058 * AR, 0.047 * AR, 0.24, o.coverall ? pants : shirt); sh.add(ua);
+    const delt = new THREE.Mesh(new THREE.SphereGeometry(0.056 * AR, 14, 10), o.coverall ? pants : shirt); delt.scale.set(0.95, 0.9, 1.1); delt.position.set(-sx * 0.012 * AR, -0.045, 0); sh.add(delt);
     const el = new THREE.Group(); el.position.y = -0.3; sh.add(el);
-    const fa = limb(0.047, 0.035, 0.22, o.shortSleeve ? skin : (o.coverall ? pants : shirt)); el.add(fa);
-    const hand = new THREE.Mesh(new RoundedBoxGeometry(0.036, 0.1, 0.075, 2, 0.016), o.gloves ? mat(0xe8e0c0) : skin); hand.position.y = -0.3; el.add(hand);
-    if (o.coverall) { const tape = mat(0xd8dcd8, 0.35); for (const [g, y, r] of [[el, -0.17, 0.043], [null, -0.3, 0.059]]) { const t = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.035, 14, 1, true), tape); t.position.y = y; (g || (legTape.push(t), el)).add(t); } }
+    const fa = limb(0.047 * AR, 0.035 * AR, 0.22, o.shortSleeve ? skin : (o.coverall ? pants : shirt)); el.add(fa);
+    const hand = new THREE.Mesh(new RoundedBoxGeometry(0.036, 0.1, 0.075, 2, 0.016), o.gloves ? mat(0xe8e0c0) : skin); hand.position.y = -0.3; hand.scale.setScalar(o.female ? 0.9 : 1); el.add(hand);
+    if (o.coverall) { const tape = mat(0xd8dcd8, 0.35); for (const [g, y, r] of [[el, -0.17, 0.043 * AR], [null, -0.3, 0.059 * LG]]) { const t = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.035, 14, 1, true), tape); t.position.y = y; (g || (legTape.push(t), el)).add(t); } }
     sh.rotation.z = sx * 0.08;
     arms.push({ sh, el });
-    const hp = new THREE.Group(); hp.position.set(sx * 0.1, 0.0, 0); hips.add(hp);
-    const th = limb(0.086, 0.06, 0.36, pants); hp.add(th);
+    const hp = new THREE.Group(); hp.position.set(sx * 0.1 * LG, 0.0, 0); hips.add(hp);
+    const th = limb(0.086 * LG, 0.06 * LG, 0.36, pants); hp.add(th);
     const kn = new THREE.Group(); kn.position.y = -0.45; hp.add(kn);
-    const sn = limb(0.06, 0.045, 0.36, pants); kn.add(sn);
+    const sn = limb(0.06 * LG, 0.045 * LG, 0.36, pants); kn.add(sn);
     if (o.coverall) { const t = legTape.pop(); t.position.y = -0.24; kn.add(t); }
     const ft = new THREE.Mesh(new RoundedBoxGeometry(0.1, 0.07, 0.25, 2, 0.03), shoe); ft.position.set(0, -0.46, -0.05); kn.add(ft);
     legs.push({ hp, kn });
   }
+  if (o.female) root.scale.setScalar(0.95);   // ~1.68 m instead of ~1.77 m
   root.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
   return { root, hips, torso, head, arms, legs, chest, eyes };
 }
@@ -305,7 +310,7 @@ const CREW = {
     SPEECH.init();
     const m = (id, look, node, face = 0, pose) => { const c = new CrewMember(id, look, node); c.idleFace = face; c.pose = pose; c.setHome(node, face, pose); this.members.push(c); return c; };
     m('co', { shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 3, skin: 0xe2b99a, hair: 0xb89a6a, radio: true, tone: '#fff4ee', shave: false, beard: '120,88,52', brow: '#b08858', hairStyle: 'short', hairCol: '#8a6a44', iris: '#4a7aa8', seed: 11 }, 'ecdL', 0, 'console');
-    m('o2', { female: true, shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 2, skin: 0xa8765a, hair: 0x1b120c, radio: true, tone: '#d8a47e', shave: true, lips: 'rgba(150,60,70,0.35)', brow: '#553020', hairStyle: 'bun', hairCol: '#1a120c', iris: '#3a2616', seed: 12, headScale: 0.93 }, 'ecdR', 0, 'console');
+    m('o2', { female: true, shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 2, skin: 0xa8765a, hair: 0x1b120c, radio: true, tone: '#e0b08c', shave: true, lips: 'rgba(165,55,72,0.55)', brow: '#553020', hairStyle: 'bob', hairCol: '#2a1810', iris: '#3a2616', seed: 12, headScale: 1.0 }, 'ecdR', 0, 'console');
     m('o3', { shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 1, skin: 0x9a6a4a, hair: 0x120c08, glasses: true, tone: '#b27a52', shave: 'light', brow: '#3a2010', hairStyle: 'short', hairCol: '#120c08', iris: '#2a1a0e', seed: 13 }, 'tele', 0, 'console');
     m('ab', { coverall: true, pants: 0xe0661c, shirt: 0xe0661c, skin: 0xb07a55, hair: 0x120c08, tone: '#c98f64', shave: true, brow: '#3a2010', hairStyle: 'crop', hairCol: '#0e0a08', iris: '#2e1d10', seed: 14, headScale: 0.98 }, 'aftC', 0.3);
     const pl = m('pilot', { shirt: 0x1d2a3a, pants: 0x2a2a2a, vest: 0xf07a14, skin: 0xe8c0a0, hair: 0x8a8a8a, glasses: true, tone: '#fff0ea', shave: 'light', brow: '#8a8078', hairStyle: 'receding', hairCol: '#9a968e', iris: '#5a7890', seed: 15, headScale: 1.02 }, 'door', 0);

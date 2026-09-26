@@ -13,7 +13,7 @@ python3 -m http.server 8765
 ```
 
 Run `node build.mjs` first, then open <http://localhost:8765>. (`index.html` is self-contained; three.js loads from jsDelivr.)
-URL options: `?autostart&tod=night&wind=fresh&voice=off&quality=medium`.
+URL options: `?autostart&tod=night&wind=fresh&sea=rough&voice=off&quality=medium`.
 
 Progress is saved in the browser's `localStorage` (pause menu, the **Save** button or Ctrl/⌘+S, plus an
 autosave every 90 s and when the tab is closed). The start screen lists the five most recent saves.
@@ -47,5 +47,7 @@ output and is not committed; run `node build.mjs` locally before serving.
 - [three.js](https://threejs.org) (MIT), loaded from jsDelivr.
 - Crew faces use the Lee Perry-Smith head scan from the three.js examples
   ([Infinite-Realities](https://www.ir-ltd.net), CC BY 3.0).
+- The female officer's head and hair come from the `female02` figure in the three.js examples
+  (Reallusion iClone, via Google 3D Warehouse).
 
 Fan-made; not an official Maersk product. Port geography is fictional.
