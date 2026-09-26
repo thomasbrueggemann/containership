@@ -205,7 +205,7 @@ function watchBoardTexture() {
   x.fillStyle = '#fbfbf8'; x.fillRect(0, 0, 700, 450);
   x.fillStyle = '#1b3b8a'; x.font = '700 28px "Marker Felt", "Comic Sans MS", cursive'; x.fillText('BRIDGE WATCHES', 24, 44);
   x.font = '600 22px "Marker Felt", "Comic Sans MS", cursive';
-  [['00–04 / 12–16', '2/O Santos + AB'], ['04–08 / 16–20', 'C/O Nielsen + AB Reyes'], ['08–12 / 20–24', '3/O Mehta + OS'], ['', ''], ['ARRIVAL WESTERHAVEN', 'Pilot 08:20 LT · Berth 4 PS'], ['Stand-by', 'C/O fwd · 2/O aft · 3/O bridge'], ['Tugs', '2 × ASD (Titan, Hercules)']].forEach(([a, b], i) => { x.fillStyle = i >= 4 ? '#b3261e' : '#1b3b8a'; x.fillText(a, 24, 100 + i * 46); x.fillStyle = '#222'; x.fillText(b, 300, 100 + i * 46); });
+  [['00–04 / 12–16', '2/O Santos + AB'], ['04–08 / 16–20', 'C/O Nielsen + AB Reyes'], ['08–12 / 20–24', '3/O Mehta + OS'], ['', ''], ['ARRIVAL WESTERHAVEN', 'Pilot ' + plannedLT(40 * 60) + ' LT · Berth 4 PS'], ['Stand-by', 'C/O fwd · 2/O aft · 3/O bridge'], ['Tugs', '2 × ASD (Titan, Hercules)']].forEach(([a, b], i) => { x.fillStyle = i >= 4 ? '#b3261e' : '#1b3b8a'; x.fillText(a, 24, 100 + i * 46); x.fillStyle = '#222'; x.fillText(b, 300, 100 + i * 46); });
   return canvasTexture(c);
 }
 

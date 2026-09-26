@@ -35,8 +35,9 @@ function buildHuman(o) {
     [0.16, 0.158 - F * 0.02, 0.112], [0.3, 0.176 - F * 0.02, 0.12, -0.006], [0.41, 0.196 - F * 0.02, 0.124, -0.01],
     [0.49, 0.212 - F * 0.02, 0.114, -0.004], [0.535, 0.205 - F * 0.02, 0.1], [0.565, 0.16 - F * 0.015, 0.084], [0.59, 0.095, 0.066], [0.605, 0.066, 0.056]].map(ring);
   const chest = new THREE.Mesh(loftGeometry(shirtProfile), o.coverall ? pants : shirt); torso.add(chest);
-  // pelvis: ends just below the hip joints and inside the tops of the thighs (no pouch between the legs)
-  const belly = new THREE.Mesh(loftGeometry([[-0.12, 0.035, 0.045], [-0.095, 0.1, 0.075], [-0.05, 0.148 + F * 0.012, 0.094], [0.0, 0.166 + F * 0.015, 0.108], [0.03, 0.173 + F * 0.012, 0.119], [0.1, 0.172 + F * 0.01, 0.118]].map(ring), true), pants);   // waistband outside the shirt hem torso.add(belly);
+  // trouser seat: waistband (outside the shirt hem) down to the crotch, never wider or deeper than the
+  // legs' silhouette except a little fullness at the back – no pouch hanging between the legs
+  const belly = new THREE.Mesh(loftGeometry([[-0.175, 0.04, 0.045, 0.01], [-0.15, 0.13, 0.082, 0.012], [-0.1, 0.16 + F * 0.012, 0.098, 0.012], [-0.02, 0.169 + F * 0.015, 0.108, 0.006], [0.03, 0.172 + F * 0.012, 0.115], [0.1, 0.172 + F * 0.01, 0.117]].map(ring), true), pants); torso.add(belly);
   if (!o.coverall) { const belt = new THREE.Mesh(loftGeometry([[0.065, 0.177 + F * 0.012, 0.122], [0.1, 0.176 + F * 0.012, 0.122]].map(ring), false, false), mat(0x111111, 0.4)); torso.add(belt); }
   if (o.vest) { const v = new THREE.Mesh(loftGeometry(shirtProfile.slice(1, 7).map(([y, w, d, z = 0]) => [y, w + 0.018, d + 0.02, z]), false, false), mat(o.vest, 0.6)); v.material.side = THREE.DoubleSide; torso.add(v); }
   if (o.epaulettes) for (const sx of [-1, 1]) { const e = new THREE.Group(); e.position.set(sx * 0.155 * W, 0.563, 0); e.rotation.z = -sx * 0.42; torso.add(e); e.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.01, 0.11), mat(0x1a2233, 0.5))); for (let k = 0; k < o.epaulettes; k++) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.101, 0.012, 0.012), mat(0xd4a93a, 0.3)); st.position.set(0, 0.002, -0.03 + k * 0.022); e.add(st); } }
@@ -92,9 +93,9 @@ function buildHuman(o) {
     sh.rotation.z = sx * 0.08;
     arms.push({ sh, el });
     const hp = new THREE.Group(); hp.position.set(sx * 0.1 * LG, 0.0, 0); hips.add(hp);
-    const th = limb(0.086 * LG, 0.06 * LG, 0.36, pants); hp.add(th);
+    const th = limb(0.094 * LG, 0.062 * LG, 0.36, pants); hp.add(th);   // trouser leg, a little loose
     const kn = new THREE.Group(); kn.position.y = -0.45; hp.add(kn);
-    const sn = limb(0.06 * LG, 0.045 * LG, 0.36, pants); kn.add(sn);
+    const sn = limb(0.062 * LG, 0.05 * LG, 0.36, pants); kn.add(sn);
     if (o.coverall) { const t = legTape.pop(); t.position.y = -0.24; kn.add(t); }
     const ft = new THREE.Mesh(new RoundedBoxGeometry(0.1, 0.07, 0.25, 2, 0.03), shoe); ft.position.set(0, -0.46, -0.05); kn.add(ft);
     legs.push({ hp, kn });

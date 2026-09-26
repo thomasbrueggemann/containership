@@ -99,6 +99,11 @@ function shipPoly(scale) { // own ship outline in body coords [fwd, stbd] metres
   return [[L2 + 3, 0], [L2 - 20, b * 0.55], [L2 - 60, b * 0.95], [L2 - 100, b], [-L2 + 40, b], [-L2 + 6, b * 0.88], [-L2, b * 0.75], [-L2, -b * 0.75], [-L2 + 6, -b * 0.88], [-L2 + 40, -b], [L2 - 100, -b], [L2 - 60, -b * 0.95], [L2 - 20, -b * 0.55]];
 }
 function nowClock() { const t = (START_TIME[CFG.tod] + G.simT) % 86400; return [Math.floor(t / 3600), Math.floor(t / 60) % 60, Math.floor(t) % 60]; }
+// greeting for the ship's local time ("good evening" at 19:05, "good morning" after midnight)
+function greeting(cap = true) { const h = nowClock()[0]; const g = h >= 18 ? 'good evening' : h >= 12 ? 'good afternoon' : 'good morning'; return cap ? g[0].toUpperCase() + g.slice(1) : g; }
+// local time of an event planned `sec` after the start of the arrival, rounded to 5 min, e.g. "08:20"
+function plannedLT(sec) { const t = Math.round((START_TIME[CFG.tod] + sec) / 300) * 300; const d = t % 86400; return String(Math.floor(d / 3600)).padStart(2, '0') + ':' + String(Math.floor(d / 60) % 60).padStart(2, '0'); }
+function plannedDay(sec) { return ['today', 'tomorrow', 'in two days'][Math.floor((START_TIME[CFG.tod] + sec) / 86400)] || ''; }
 function clockStr(sec = true) { const [h, m, s] = nowClock(); return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + (sec ? ':' + String(s).padStart(2, '0') : ''); }
 
 // nearest-quay geometry for docking aids (also used by scenario & tugs)
@@ -837,7 +842,7 @@ function drawCCTV(x, W, H) {
 function drawOffice(x, W, H) {
   x.fillStyle = '#eef1f4'; x.fillRect(0, 0, W, H);
   x.fillStyle = '#0b2b3d'; x.fillRect(0, 0, W, 50); txt(x, 'Voyage orders — MAJESTIC MAERSK · Voy 2641W', 16, 33, { s: 20, w: 700, c: '#fff' });
-  ['Rotation: Tanjung Pelepas → Suez → Algeciras → WESTERHAVEN → Bremerhaven', 'Arrival draft 14.5 m even keel · 17 842 TEU on board · 1 402 reefers', 'Berth 4 Deepsea Terminal, port side alongside, 4 STS cranes', 'ETB 09:30 LT · cargo ops 26 h · ETD tomorrow 13:00', 'Bunkers: 4 600 t VLSFO · no bunkering this call', 'Crew change: 2 on / 2 off via agent at berth'].forEach((l, i) => txt(x, l, 20, 100 + i * 50, { s: 20, c: '#223' }));
+  ['Rotation: Tanjung Pelepas → Suez → Algeciras → WESTERHAVEN → Bremerhaven', 'Arrival draft 14.5 m even keel · 17 842 TEU on board · 1 402 reefers', 'Berth 4 Deepsea Terminal, port side alongside, 4 STS cranes', 'ETB ' + plannedLT(110 * 60) + ' LT · cargo ops 26 h · ETD ' + plannedDay(110 * 60 + 27.5 * 3600) + ' ' + plannedLT(110 * 60 + 27.5 * 3600), 'Bunkers: 4 600 t VLSFO · no bunkering this call', 'Crew change: 2 on / 2 off via agent at berth'].forEach((l, i) => txt(x, l, 20, 100 + i * 50, { s: 20, c: '#223' }));
 }
 function drawFire(x, W, H) {
   const P = pal();

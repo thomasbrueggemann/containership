@@ -60,7 +60,7 @@ const SCN = {
         done: () => s.engineMode === 'FWE' },
     ];
     this.cur = 0;
-    this.later(3, () => this.say('co', 'Good morning, Captain. We are eight and a half miles west of Westerhaven, sixteen knots on autopilot, heading zero-nine-zero. Engine room is waiting for stand-by. Pilot is ordered for the boarding place.'));
+    this.later(3, () => this.say('co', greeting() + ', Captain. We are eight and a half miles west of Westerhaven, sixteen knots on autopilot, heading zero-nine-zero. Engine room is waiting for stand-by. Pilot is ordered for the boarding place.'));
     this.later(28, () => this.say('vts', 'All stations, this is Westerhaven Traffic. Wind south-west, ' + Math.round(s.windSpeed / KN) + ' knots. Flood tide setting north-east, half a knot. Westgeul fairway: one outbound, HANSA EXPRESS. Out.', true));
     UI.updateMission(true);
   },
@@ -92,7 +92,7 @@ const SCN = {
       const p = CREW.byId('pilot');
       p.setHome('pilot', 0, null); p.enter('pilot', () => p.goHome());
       G.flags.pilotOnBridge = true;
-      SCN.say('pilot', 'Good morning, Captain. Hendrik de Vries, Westerhaven pilots. Thank you for the lee. Pilot card, please — ah, fourteen and a half metres. We go Berth four, port side alongside, two tugs at the breakwater. Keep her on zero-nine-zero at about ten knots.');
+      SCN.say('pilot', greeting() + ', Captain. Hendrik de Vries, Westerhaven pilots. Thank you for the lee. Pilot card, please — ah, fourteen and a half metres. We go Berth four, port side alongside, two tugs at the breakwater. Keep her on zero-nine-zero at about ten knots.');
       SCN.later(40, () => { if (!G.flags.hflag) SCN.say('o3', 'Captain, shall I hoist the H flag?'); });
     },
     linesFast({ st, side }) { SCN.makeFast(st, side); },
@@ -190,7 +190,7 @@ const SCN = {
     if (!F.vtsReported) {
       this.say(who === 'o2' ? 'o2' : 'me', 'Westerhaven Traffic, Westerhaven Traffic, this is Majestic Maersk, Majestic Maersk, call sign OYGR2. Inbound, ' + (Math.abs(s.x - GEO.seaBuoy[0]) / NM).toFixed(1) + ' miles from the fairway buoy, draft fourteen decimal five, for Berth four Deepsea Terminal. Over.', true);
       this.later(4, () => {
-        this.say('vts', 'Majestic Maersk, Westerhaven Traffic, good morning. Pilot boarding at the boarding place, ladder ' + F.leeSide.toLowerCase() + ' side, two metres, speed eight knots. Outbound HANSA EXPRESS departing, pass port to port in the Westgeul. Tugs available at the breakwater on channel twelve. Report when pilot on board. Over.', true);
+        this.say('vts', 'Majestic Maersk, Westerhaven Traffic, ' + greeting(false) + '. Pilot boarding at the boarding place, ladder ' + F.leeSide.toLowerCase() + ' side, two metres, speed eight knots. Outbound HANSA EXPRESS departing, pass port to port in the Westgeul. Tugs available at the breakwater on channel twelve. Report when pilot on board. Over.', true);
         F.vtsReported = true;
       });
     } else if (F.pilotOnBridge && !this.once.vtsPob) {
