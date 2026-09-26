@@ -49,7 +49,8 @@ const SCN = {
       { id: 'berth', title: 'Alongside Berth 4', phase: 'Berthing',
         text: 'Berth 4 is on the north quay, between the yellow STERN/BOW boards, cranes with booms raised. Bring her parallel, stop her with the midship abeam the “B4 MID” board, then walk her sideways onto the fenders at under 15 cm/s. Either side to.',
         how: ['Engines fore & aft; tugs and bow thrusters sideways (T = tug panel, Q/E = thrusters)', 'Or: Tab → Pilot → “Handle the tugs for berthing” and just work the engines', 'Docking display (G) / wing consoles show bow & stern distance and approach speed', 'Walk to a bridge wing (2/3) and look down through the glass floor'],
-        done: () => { const bi = berthInfo(); return bi && bi.q.id === 'N' && bi.bow.d < 1.5 && bi.stern.d < 1.5 && Math.abs(bi.berthOff) < 40 && s.sog < 0.12; } },
+        done: () => { if (F.linesFwd && F.linesAft) return true;   // moored = alongside
+          const bi = berthInfo(); return bi && bi.q.id === 'N' && bi.bow.d < 1.5 && bi.stern.d < 1.5 && Math.abs(bi.berthOff) < 40 && s.sog < 0.12; } },
       { id: 'lines', title: 'Make fast', phase: 'Berthing',
         text: 'All along the fenders. Get the mooring lines out: head lines, breast lines and springs forward and aft. Keep her pressed in with the tugs until lines are fast.',
         how: ['Tab → C/O → “Forward: send lines ashore”', 'Tab → 2/O → “Aft: send lines ashore”'],
@@ -243,7 +244,9 @@ const SCN = {
       else if (force) msg = 'Keep her on the leading lights, zero-nine-zero. The set is to the north-east, allow a degree or two. We are doing fine.';
     } else if (bi && bi.q.id === 'N') {
       const dx = bi.berthOff * Math.sign(Math.sin(s.psi));
-      if (!(s.tugs[0].attached && s.tugs[1].attached)) msg = 'Careful, Captain — without both tugs fast I would keep her stopped.';
+      if (F.linesFwd && F.linesAft) msg = s.engineMode === 'FWE' ? null : 'All fast fore and aft, Captain. Let the tugs go and ring finished with engines.';
+      else if (F.linesFwd || F.linesAft) msg = 'Keep her pressed in — ' + (F.linesFwd ? 'aft' : 'forward') + ' lines still to go out.';
+      else if (!(s.tugs[0].attached && s.tugs[1].attached)) msg = 'Careful, Captain — without both tugs fast I would keep her stopped.';
       else if (kn > 4) msg = 'Too much speed for the basin — stop the engines, maybe slow astern to take the way off.';
       else if (Math.abs(bi.angle) > 6 && bi.dc < 250) msg = 'She is not parallel yet, ' + Math.abs(bi.angle).toFixed(0) + ' degrees. Use the tugs — push the ' + (bi.bow.d > bi.stern.d ? 'bow' : 'stern') + ' in.';
       else if (dx > 40) msg = 'We are ' + dx.toFixed(0) + ' metres ahead of the mark — a touch astern.';
@@ -252,7 +255,12 @@ const SCN = {
       else if (bi.dc > 20) msg = 'Good position. Now walk her in parallel — tugs toward the quay, about half power, and watch the approach speed.';
       else if (force) msg = 'Very nice, Captain. Just let her settle on the fenders.';
     } else if (force) msg = 'Steady as she goes, Captain.';
-    if (msg) this.say('pilot', msg);
+    if (!msg) return;
+    // unprompted, he does not repeat himself: remarks once, warnings at most every five minutes
+    const kind = msg.replace(/[\d.]+/g, '#'), said = (this.pilotSaid = this.pilotSaid || {});
+    if (!force && kind in said && (/^(Good position|Time to call|I would go slow)/.test(msg) || G.simT - said[kind] < 300)) return;
+    said[kind] = G.simT;
+    this.say('pilot', msg);
   },
   togglePilotCon() {
     const F = G.flags;
@@ -313,7 +321,9 @@ const SCN = {
   sendLines(st) {
     const bi = berthInfo(), F = G.flags, s = G.ship;
     const e = bi && (st === 'fwd' ? bi.bow : bi.stern);
-    if (!bi || bi.q.id !== 'N' || e.d > 6 || Math.abs(bi.berthOff) > 60) { this.say(st, (st === 'fwd' ? 'Forward' : 'Aft') + ': too far from the quay for the heaving lines, Captain — ' + (e ? e.d.toFixed(0) : '??') + ' metres.', true); return; }
+    if (!bi || bi.q.id !== 'N' || e.d > 6) { this.say(st, (st === 'fwd' ? 'Forward' : 'Aft') + ': too far from the quay for the heaving lines, Captain — ' + (e ? e.d.toFixed(0) : '??') + ' metres.', true); return; }
+    // same tolerance as the berth itself: once the lines are out she stays where she is
+    if (Math.abs(bi.berthOff) >= 40) { const dx = bi.berthOff * Math.sign(Math.sin(s.psi)); this.say(st, (st === 'fwd' ? 'Forward' : 'Aft') + ': we are ' + Math.abs(bi.berthOff).toFixed(0) + ' metres ' + (dx > 0 ? 'ahead of' : 'short of') + ' the berth mark, Captain — shift her along first, the linesmen are waiting at Berth 4.', true); return; }
     this.say(st, (st === 'fwd' ? 'Forward: heaving lines ashore… head lines and spring going out.' : 'Aft: stern lines and spring going ashore.'), true);
     this.later(60, 'linesFast', { st, side: bi.side });
   },
