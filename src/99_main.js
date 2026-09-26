@@ -60,7 +60,9 @@ function updateShipVisual(dt) {
   for (let xb = -180; xb <= 180; xb += 45) { const [wx, wz] = s.toWorld(xb, 0), h = SWELL.height(wx, wz); hsum += h; hx += h * xb; xx += xb * xb; }
   const heave = hsum / 9, [px, pz] = s.toWorld(-60, -27), [sx2, sz2] = s.toWorld(-60, 27);
   const beam = (SWELL.height(sx2, sz2) - SWELL.height(px, pz)) / 54;
-  const roll = clamp(s.u * s.r * 1.1, -0.045, 0.045) + (Math.sin(t * 2 * Math.PI / 13.5) + 0.35 * Math.sin(t * 2 * Math.PI / 21 + 2)) * 0.0045 * sea + Math.atan(beam) * 0.5;
+  // own roll near her natural period, building and dying away between sets of bigger waves
+  const rollAmp = seaState().roll * DEG * (s.x > -2600 ? 0.3 : 1) * (0.7 + 0.3 * Math.sin(t * 2 * Math.PI / 95));
+  const roll = clamp(s.u * s.r * 1.1, -0.045, 0.045) + (Math.sin(t * 2 * Math.PI / 14) * 0.8 + Math.sin(t * 2 * Math.PI / 21 + 2) * 0.3) * rollAmp + Math.atan(beam) * 0.5;
   const pitch = Math.atan(hx / xx) * 1.2 + Math.sin(t * 2 * Math.PI / 9.2 + 1) * 0.0005 * sea;
   g.position.set(s.x, -s.squat * 0.6 + heave * 0.85, s.z);
   g.rotation.set(pitch, -s.psi, roll, 'YXZ');
@@ -88,7 +90,7 @@ function updateEnvFrame() {
   const wTo = G.ship.windFrom + Math.PI; // waves run downwind
   U.uWindAng.value = Math.atan2(-Math.cos(wTo), Math.sin(wTo));
   if (!SWELL.waves.length) SWELL.init(U.uWindAng.value);
-  SWELL.setAmp(SS.waveA); SWELL.cam.copy(cp);
+  SWELL.setAmp(SS.waveA, SS.chop); SWELL.cam.copy(cp);
   // inside the breakwaters the sea is sheltered
   const shelter = G.ship.x > -2600 ? 0.45 : 1; U.uSea.value *= shelter; U.uCaps.value *= shelter;
   // shadow camera follows the bridge

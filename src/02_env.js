@@ -136,18 +136,22 @@ function buildEnvironment() {
 // the same waves. Waves fade out with distance from the camera (the far sea keeps its shading)
 // and are much reduced inside the breakwaters.
 const SWELL = {
-  TRAINS: [[175, 0, 1.0, 0.3], [128, 22, 0.8, 2.1], [96, -18, 0.6, 4.0], [72, 40, 0.45, 5.2]], // λ [m], Δdir [°], weight, phase
+  // λ [m], Δdir [°], weight, phase, kind (0 = swell, scaled by waveA; 1 = short steep wind sea, scaled by chop)
+  TRAINS: [[175, 0, 1.0, 0.3, 0], [128, 22, 0.8, 2.1, 0], [96, -18, 0.6, 4.0, 0], [72, 40, 0.45, 5.2, 0], [52, -30, 0.8, 1.1, 1], [38, 14, 0.6, 3.3, 1]],
   waves: [], cam: new THREE.Vector3(),
-  U: { uSwA: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uSwB: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uSwAmp: { value: 0 } },
+  U: { uSwA: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) }, uSwB: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector4()) }, uSwAmp: { value: 0 }, uChop: { value: 0 }, uSwMax: { value: 1 } },
+  // geometry is displaced only where the mesh is fine enough for the wavelength (fade 4λ…7λ from the
+  // camera); the shading keeps the waves much further out (10λ…35λ)
+  GEO: [4, 7], SHADE: [10, 35],
   GLSL: `
-    uniform vec4 uSwA[4]; uniform vec4 uSwB[4]; uniform float uSwAmp;
-    // xyz = height, d/dx, d/dz at world p, faded with distance from the camera
-    vec3 swell(vec2 p, float dist, float t){
+    uniform vec4 uSwA[6]; uniform vec4 uSwB[6]; uniform float uSwAmp, uChop, uSwMax;
+    // xyz = height, d/dx, d/dz at world p; fr = fade range in wavelengths from the camera
+    vec3 swell(vec2 p, float dist, float t, vec2 fr){
       vec3 r = vec3(0.0);
-      float sh = uSwAmp * (1.0 - 0.85 * smoothstep(-3200.0, -2500.0, p.x));
-      for (int i = 0; i < 4; i++) {
+      float sh = 1.0 - 0.85 * smoothstep(-3200.0, -2500.0, p.x);
+      for (int i = 0; i < 6; i++) {
         vec4 a = uSwA[i], b = uSwB[i];
-        float A = b.x * sh * (1.0 - smoothstep(b.z * 8.0, b.z * 25.0, dist));
+        float A = b.x * sh * mix(uSwAmp, uChop, b.w) * (1.0 - smoothstep(b.z * fr.x, b.z * fr.y, dist));
         float ph = a.z * dot(a.xy, p) - a.w * t + b.y;
         r.x += A * sin(ph); r.yz += a.xy * (a.z * A * cos(ph));
       }
@@ -155,20 +159,23 @@ const SWELL = {
     }`,
   // windTo: direction the wind blows towards, world-frame angle as used by the ocean shader
   init(windAng) {
-    this.waves = this.TRAINS.map(([lam, dd, w, ph], i) => {
+    this.waves = this.TRAINS.map(([lam, dd, w, ph, kind], i) => {
       const a = windAng + dd * DEG, k = 2 * Math.PI / lam;
-      const W = { dx: Math.cos(a), dz: Math.sin(a), k, w: Math.sqrt(9.81 * k), wt: w, ph, lam };
-      this.U.uSwA.value[i].set(W.dx, W.dz, k, W.w); this.U.uSwB.value[i].set(w, ph, lam, 0);
+      const W = { dx: Math.cos(a), dz: Math.sin(a), k, w: Math.sqrt(9.81 * k), wt: w, ph, lam, kind };
+      this.U.uSwA.value[i].set(W.dx, W.dz, k, W.w); this.U.uSwB.value[i].set(w, ph, lam, kind);
       return W;
     });
   },
-  setAmp(a) { this.U.uSwAmp.value = a; },
+  setAmp(swell, chop) {
+    this.U.uSwAmp.value = swell; this.U.uChop.value = chop;
+    this.U.uSwMax.value = Math.max(0.05, this.waves.reduce((s, W) => s + W.wt * (W.kind ? chop : swell), 0));
+  },
+  // height of the displaced water surface (matches the geometry, so things float on what you see)
   height(x, z, t = G.realT) {
-    const sh = this.U.uSwAmp.value * (1 - 0.85 * smooth(-3200, -2500, x));
-    if (!sh) return 0;
-    const dist = Math.hypot(x - this.cam.x, z - this.cam.z);
+    const sh = 1 - 0.85 * smooth(-3200, -2500, x);
+    const dist = Math.hypot(x - this.cam.x, z - this.cam.z), U = this.U;
     let h = 0;
-    for (const W of this.waves) h += W.wt * sh * (1 - smooth(W.lam * 8, W.lam * 25, dist)) * Math.sin(W.k * (W.dx * x + W.dz * z) - W.w * t + W.ph);
+    for (const W of this.waves) h += W.wt * sh * (W.kind ? U.uChop.value : U.uSwAmp.value) * (1 - smooth(W.lam * this.GEO[0], W.lam * this.GEO[1], dist)) * Math.sin(W.k * (W.dx * x + W.dz * z) - W.w * t + W.ph);
     return h;
   },
 };
@@ -217,7 +224,7 @@ function buildOcean() {
       ${SWELL.GLSL}
       void main(){
         vec4 wp = modelMatrix * vec4(position, 1.0);
-        wp.y += swell(wp.xz, distance(wp.xz, cameraPosition.xz), uTime).x;
+        wp.y += swell(wp.xz, distance(wp.xz, cameraPosition.xz), uTime, vec2(4.0, 7.0)).x;
         vWorld = wp.xyz;
         vec4 mvPosition = viewMatrix * wp;
         gl_Position = projectionMatrix * mvPosition;
@@ -249,7 +256,7 @@ function buildOcean() {
         // wind patches / cat's paws: slow large-scale modulation of the short waves
         float patchy = 0.45 + 1.1 * vn(p / 850.0 + uTime * vec2(0.0035, 0.002)) * (0.6 + 0.8 * vn(p / 230.0 - uTime * 0.005));
         // swell slope (matches the displaced geometry exactly)
-        vec3 sw = swell(p, length(cameraPosition.xz - p), uTime);
+        vec3 sw = swell(p, length(cameraPosition.xz - p), uTime, vec2(10.0, 35.0));
         vec2 slope = sw.yz; float h = 0.0, hsq = 0.0, lost = 0.0;
         float wl = 170.0;
         for (int i = 0; i < 34; i++) {
@@ -308,6 +315,15 @@ function buildOcean() {
         // whitecaps on the steepest crests
         float capN = vn(p / 6.0 + uTime * 0.3) * vn(p / 23.0 - uTime * 0.05);
         float foam = smoothstep(1.7, 2.7, h / rms) * uCaps * smoothstep(0.15, 0.6, capN) * (1.0 - smoothstep(600.0, 4000.0, dist));
+        // breaking crests of the big waves, and foam streaks blown downwind in heavy weather
+        // patchy breakers only on the highest crests
+        float swCrest = sw.x / uSwMax;
+        float brk = vn(p / 7.0 + vec2(uTime * 0.35, -uTime * 0.2)) * vn(p / 29.0 - uTime * 0.06) * vn(p / 83.0 + 3.7);
+        foam += smoothstep(0.5, 0.85, swCrest) * smoothstep(0.1, 0.3, brk) * uCaps * 1.1;
+        // faint, broken spindrift streaks blown downwind in the roughest seas
+        float streak = vn(vec2(q.x / 45.0, q.y / 2.5) - vec2(uTime * 0.25, 0.0)) * vn(p / 19.0) * vn(p / 61.0 + 1.3);
+        foam += smoothstep(0.22, 0.4, streak) * smoothstep(0.7, 1.0, uCaps) * 0.18;
+        foam *= 1.0 - smoothstep(900.0, 5000.0, dist);
         col = mix(col, vec3(0.85, 0.88, 0.9) * (0.2 + 0.8 * sunUp) + uSkyAmb * 0.05, clamp(foam, 0.0, 0.85));
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
@@ -315,7 +331,7 @@ function buildOcean() {
         #include <fog_fragment>
       }`,
   });
-  const water = new THREE.Mesh(CFG.quality === 'low' ? oceanGeometry(150, 200, 60000) : oceanGeometry(240, 360, 60000), mat);
+  const water = new THREE.Mesh(CFG.quality === 'low' ? oceanGeometry(200, 240, 60000) : oceanGeometry(330, 400, 60000), mat);
   water.frustumCulled = false;
   water.renderOrder = -1;
   scene.add(water);
@@ -417,7 +433,7 @@ class Wake {
         ${SWELL.GLSL}
         // wakes and foam patches sit on the water surface wherever they are (also those carried by the ship)
         void main(){ vA = aAlpha; vUv = uv; vec4 wp = modelMatrix*vec4(position,1.0); vW = wp.xz;
-          wp.y = 0.32 + swell(wp.xz, distance(wp.xz, cameraPosition.xz), uTime).x;
+          wp.y = 0.32 + swell(wp.xz, distance(wp.xz, cameraPosition.xz), uTime, vec2(4.0, 7.0)).x;
           gl_Position = projectionMatrix*viewMatrix*wp;
           #include <logdepthbuf_vertex>
         }`,

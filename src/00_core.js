@@ -55,10 +55,11 @@ const CFG = { tod: 'morning', wind: 'moderate', sea: 'moderate', traffic: 'on', 
 // Sea state (Douglas scale): wave slope amplitude, whitecaps, own-ship swell response, small-craft motion
 const SEA_STATES = {
   // waveA: amplitude [m] of the leading swell train (Hs ≈ 4.2 × waveA: ~0.2 / 0.6 / 1.6 / 5.5 m)
-  calm: { label: 'Calm (1)', sea: 0.32, caps: 0.0, swell: 0.35, bob: 0.35, waveA: 0.05 },
-  slight: { label: 'Slight (3)', sea: 0.58, caps: 0.12, swell: 0.9, bob: 0.8, waveA: 0.15 },
-  moderate: { label: 'Moderate (4)', sea: 0.82, caps: 0.45, swell: 1.5, bob: 1.2, waveA: 0.38 },
-  rough: { label: 'Rough (5–6)', sea: 1.25, caps: 1.0, swell: 3.2, bob: 2.2, waveA: 1.3 },
+  // chop: amplitude [m] of the short, steep wind-sea trains; roll: own-ship roll amplitude [°] in open water
+  calm: { label: 'Calm (1)', sea: 0.32, caps: 0.0, swell: 0.35, bob: 0.35, waveA: 0.05, chop: 0.02, roll: 0.3 },
+  slight: { label: 'Slight (3)', sea: 0.58, caps: 0.12, swell: 0.9, bob: 0.8, waveA: 0.15, chop: 0.12, roll: 1.0 },
+  moderate: { label: 'Moderate (4)', sea: 0.82, caps: 0.45, swell: 1.5, bob: 1.2, waveA: 0.38, chop: 0.4, roll: 2.5 },
+  rough: { label: 'Rough (5–6)', sea: 1.25, caps: 1.0, swell: 3.2, bob: 2.2, waveA: 1.3, chop: 1.15, roll: 6 },
 };
 const seaState = () => SEA_STATES[CFG.sea] || SEA_STATES.moderate;
 
