@@ -108,14 +108,20 @@ const SCN = {
     // timers
     for (let i = this.timers.length - 1; i >= 0; i--) if (G.simT >= this.timers[i].t) { const t = this.timers.splice(i, 1)[0]; this.runTimer(t); }
     if (this.done || this.failed) return;
-    // step progression (steps may be completed out of order)
-    while (this.cur < this.steps.length && this.steps[this.cur].done()) {
+    // step progression: a step counts as done the moment it is achieved, in any order (e.g. the VTS
+    // report before stand-by); the panel then moves on to the first step that is still open
+    let ticked = false;
+    for (let i = this.cur; i < this.steps.length; i++) {
+      const st = this.steps[i];
+      if (!st.ok && st.done()) { st.ok = true; ticked = true; if (i > this.cur) UI.toast('✓ ' + st.title, 'info'); }
+    }
+    if (ticked) { AUDIO.tone(880, 0.15, 'sine', 0.05); AUDIO.tone(1320, 0.2, 'sine', 0.05, 0.12); }
+    while (this.cur < this.steps.length && this.steps[this.cur].ok) {
       this.cur++;
-      AUDIO.tone(880, 0.15, 'sine', 0.05); AUDIO.tone(1320, 0.2, 'sine', 0.05, 0.12);
-      UI.updateMission(true);
-      if (this.cur >= this.steps.length) { this.complete(); return; }
+      if (this.cur >= this.steps.length) { UI.updateMission(true); this.complete(); return; }
       this.onStep(this.steps[this.cur].id);
     }
+    if (ticked) UI.updateMission(true);
     UI.updateMission(false);
     F.berthSide = Math.abs(wrap180(s.psi / DEG - 90)) < 90 ? 'PORT' : 'STBD';
     // monitors

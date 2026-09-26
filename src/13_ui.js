@@ -133,7 +133,7 @@ const UI = {
         $('stepHow').innerHTML = CFG.assist === 'off' ? '' : st.how.map((h) => `<li>${h}</li>`).join('');
       }
       $('stepProg').textContent = `STEP ${Math.min(SCN.cur + 1, SCN.steps.length)} / ${SCN.steps.length}`;
-      $('checklist').innerHTML = SCN.steps.map((s, i) => `<div class="${i < SCN.cur ? 'done' : i === SCN.cur ? 'cur' : ''}">${s.title}</div>`).join('');
+      $('checklist').innerHTML = SCN.steps.map((s, i) => `<div class="${i < SCN.cur || s.ok ? 'done' : i === SCN.cur ? 'cur' : ''}">${s.title}</div>`).join('');
     }
   },
   // --------------------------------------------------------- status bar

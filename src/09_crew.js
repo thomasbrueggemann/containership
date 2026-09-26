@@ -31,11 +31,13 @@ function buildHuman(o) {
   const W = o.female ? 0.84 : 0.86, D = o.female ? 0.9 : 0.96, AR = o.female ? 0.8 : 0.86, LG = o.female ? 0.86 : 0.92;
   // scale a loft ring [y, halfWidth, halfDepth, z]; rings at the collar keep their size so the neck still fits
   const ring = ([y, w, d, z = 0]) => { const t = smooth(0.52, 0.6, y), k = lerp(W, 1, t), kd = lerp(D, 1, t); return [y, w * k, d * kd, z * kd]; };
-  const shirtProfile = [[0.02, 0.166 + F * 0.01, 0.114], [0.16, 0.158 - F * 0.02, 0.112], [0.3, 0.176 - F * 0.02, 0.12, -0.006], [0.41, 0.196 - F * 0.02, 0.124, -0.01],
+  const shirtProfile = [[0.075, 0.163 + F * 0.01, 0.113],   // hem tucked in under the belt
+    [0.16, 0.158 - F * 0.02, 0.112], [0.3, 0.176 - F * 0.02, 0.12, -0.006], [0.41, 0.196 - F * 0.02, 0.124, -0.01],
     [0.49, 0.212 - F * 0.02, 0.114, -0.004], [0.535, 0.205 - F * 0.02, 0.1], [0.565, 0.16 - F * 0.015, 0.084], [0.59, 0.095, 0.066], [0.605, 0.066, 0.056]].map(ring);
   const chest = new THREE.Mesh(loftGeometry(shirtProfile), o.coverall ? pants : shirt); torso.add(chest);
-  const belly = new THREE.Mesh(loftGeometry([[-0.2, 0.05, 0.06], [-0.165, 0.12, 0.09], [-0.1, 0.162 + F * 0.012, 0.108], [-0.02, 0.176 + F * 0.015, 0.114], [0.06, 0.171 + F * 0.012, 0.116], [0.1, 0.169 + F * 0.01, 0.116]].map(ring), true), pants); torso.add(belly);
-  if (!o.coverall) { const belt = new THREE.Mesh(loftGeometry([[0.07, 0.172 + F * 0.012, 0.118], [0.105, 0.171 + F * 0.012, 0.118]].map(ring), false, false), mat(0x111111, 0.4)); torso.add(belt); }
+  // pelvis: ends just below the hip joints and inside the tops of the thighs (no pouch between the legs)
+  const belly = new THREE.Mesh(loftGeometry([[-0.12, 0.035, 0.045], [-0.095, 0.1, 0.075], [-0.05, 0.148 + F * 0.012, 0.094], [0.0, 0.166 + F * 0.015, 0.108], [0.03, 0.173 + F * 0.012, 0.119], [0.1, 0.172 + F * 0.01, 0.118]].map(ring), true), pants);   // waistband outside the shirt hem torso.add(belly);
+  if (!o.coverall) { const belt = new THREE.Mesh(loftGeometry([[0.065, 0.177 + F * 0.012, 0.122], [0.1, 0.176 + F * 0.012, 0.122]].map(ring), false, false), mat(0x111111, 0.4)); torso.add(belt); }
   if (o.vest) { const v = new THREE.Mesh(loftGeometry(shirtProfile.slice(1, 7).map(([y, w, d, z = 0]) => [y, w + 0.018, d + 0.02, z]), false, false), mat(o.vest, 0.6)); v.material.side = THREE.DoubleSide; torso.add(v); }
   if (o.epaulettes) for (const sx of [-1, 1]) { const e = new THREE.Group(); e.position.set(sx * 0.155 * W, 0.563, 0); e.rotation.z = -sx * 0.42; torso.add(e); e.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.01, 0.11), mat(0x1a2233, 0.5))); for (let k = 0; k < o.epaulettes; k++) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.101, 0.012, 0.012), mat(0xd4a93a, 0.3)); st.position.set(0, 0.002, -0.03 + k * 0.022); e.add(st); } }
   if (o.radio) { const r = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.035), mat(0x111111)); r.position.set(0.12 * W, 0.44, -0.13 * D); torso.add(r); }

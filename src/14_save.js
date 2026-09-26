@@ -37,7 +37,7 @@ const SAVE = {
       v: this.VERSION,
       meta: { date: Date.now(), simT: G.simT, step: SCN.cur, steps: SCN.steps.length, title: st ? st.title : 'Alongside', score: SCN.total(), tod: CFG.tod, wind: CFG.wind, sea: CFG.sea },
       cfg: CFG, g, ship,
-      scn: { cur: SCN.cur, once: SCN.once, done: SCN.done, failed: SCN.failed, contactCool: SCN.contactCool, lastFenderT: SCN.lastFenderT ?? null, pilotT: SCN.pilotT || 0, conT: SCN.conT || 0,
+      scn: { cur: SCN.cur, ok: SCN.steps.map((st) => !!st.ok), once: SCN.once, done: SCN.done, failed: SCN.failed, contactCool: SCN.contactCool, lastFenderT: SCN.lastFenderT ?? null, pilotT: SCN.pilotT || 0, conT: SCN.conT || 0,
         timers: SCN.timers.filter((t) => t.key).map((t) => ({ t: t.t, key: t.key, arg: t.arg })),
         lines: SCN.lineMeshes.map((L) => ({ xb: L.xb, yb: L.yb, qx: L.qx, qz: L.qz, fwd: L.fwd })) },
       traffic: TRAFFIC.ships.map((o) => ({ name: o.name, x: o.x, z: o.z, psi: o.psi, sog: o.sog, cog: o.cog, active: o.active, wpi: o.wpi, tgt: o.tgt || null, done: !!o.done })),
@@ -84,7 +84,8 @@ const SAVE = {
     for (const k of Object.keys(snap.ship)) s[k] = snap.ship[k];
     // scenario
     const c = snap.scn;
-    SCN.cur = c.cur; SCN.once = c.once || {}; SCN.done = c.done; SCN.failed = c.failed; SCN.contactCool = c.contactCool || 0;
+    SCN.cur = c.cur; SCN.once = c.once || {};
+    SCN.steps.forEach((st, i) => { st.ok = i < c.cur || !!(c.ok && c.ok[i]); }); SCN.done = c.done; SCN.failed = c.failed; SCN.contactCool = c.contactCool || 0;
     SCN.lastFenderT = c.lastFenderT ?? undefined; SCN.pilotT = c.pilotT; SCN.conT = c.conT;
     SCN.timers = c.timers.map((t) => ({ t: t.t, key: t.key, arg: t.arg }));
     for (const L of c.lines) SCN.addLineMesh(L.fwd, L.xb, L.yb, L.qx, L.qz);
