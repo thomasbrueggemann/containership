@@ -676,6 +676,15 @@ function teleStep(d, which) {
   G.bellBook.unshift({ t: G.simT, txt: lab });
   CREW.teleAck(lab);
   SCN.flag('tele');
+  // the engines only run astern in manoeuvring (stand-by) mode – say so instead of silently coasting
+  if (Math.min(s.tele[0], s.tele[1]) < TELEGRAPH_STOP && s.engineMode !== 'STANDBY') {
+    UI.toast(s.engineMode === 'FWE' ? 'Engines are secured (FWE) — no propulsion' : 'No astern in SEA mode — the propellers just stop. Ring STANDBY first (engine panel, ECR phone or 3/O).', 'caution');
+    if (s.engineMode === 'SEA' && G.simT - (G._asternWarnT ?? -1e9) > 60) {
+      G._asternWarnT = G.simT;
+      const o3 = CREW.byId('o3');
+      if (o3 && o3.present) setTimeout(() => CREW.say('o3', 'Captain, we are still in sea mode — the engine room cannot give astern. Shall I ring stand-by?'), 1400);
+    }
+  }
 }
 function requestEngineMode(m) {
   const s = G.ship;
