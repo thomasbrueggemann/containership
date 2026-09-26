@@ -14,7 +14,7 @@ const BRIDGE_Y = 45.8, BRIDGE_Z = -50;
 
 function addCollider(x0, x1, z0, z1) { BR.colliders.push({ x0: Math.min(x0, x1), x1: Math.max(x0, x1), z0: Math.min(z0, z1), z1: Math.max(z0, z1) }); }
 
-// Registers a mesh as clickable. cfg: {name, hint, click(hit, btn), wheel(dir), down(), up()}
+// Registers a mesh as interactive. cfg: {name, hint, click(hit, btn), wheel(dir), down(), up(), zoom: display key (Space)}
 function interactive(mesh, cfg) {
   mesh.userData.ia = cfg;
   G.interactables.push(mesh);
@@ -251,7 +251,7 @@ function buildBridge(shipGroup) {
     const housing = new THREE.Mesh(new THREE.BoxGeometry(w + 0.06, h + 0.06, 0.07), M.bezel); housing.position.set(0, h / 2 + 0.03, 0.0); housing.castShadow = true; grp.add(housing);
     const scr = new THREE.Mesh(new THREE.PlaneGeometry(w, h), DISPLAYS[key].material); scr.position.set(0, h / 2 + 0.03, 0.037); grp.add(scr);
     bg.add(grp);
-    interactive(scr, { name: DISPLAYS[key].title, hint: 'Click to view full screen', click: () => UI.zoomDisplay(key) });
+    interactive(scr, { name: DISPLAYS[key].title, zoom: key });
     return scr;
   };
   dispAt('radar1', 0); dispAt('ecdis1', 1); dispAt('conning', 3); dispAt('conning2', 4, 0.96, 0.62);
@@ -367,7 +367,7 @@ function buildBridge(shipGroup) {
     makeButton(p, 'SPLIT', 0.37, -0.12, { w: 0.09, name: 'Split / combine telegraphs', hint: 'Toggle independent control of port and starboard engines', click: () => { G.splitEngines = !G.splitEngines; UI.toast(G.splitEngines ? 'Telegraphs split — levers act independently' : 'Telegraphs combined'); } });
     // bell book on the desk
     const bb = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.02, 0.3), new THREE.MeshStandardMaterial({ color: 0x223c6e, roughness: 0.7 })); bb.position.set(0.36, 0.01, 0.12); p.add(bb);
-    interactive(bb, { name: 'Bell book (engine movement log)', hint: 'Click to read', click: () => UI.showBellBook() });
+    interactive(bb, { name: 'Bell book (engine movement log)', zoom: 'bellbook' });
   }
   // ---- module 7: bow thrusters
   {
@@ -398,13 +398,13 @@ function buildBridge(shipGroup) {
     const oh = new THREE.Group(); oh.position.set(0, H - 0.34, -5.55); oh.rotation.x = 0.38; bg.add(oh);
     const box = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.62, 0.3), M.consoleDark); oh.add(box);
     const face = new THREE.Mesh(new THREE.PlaneGeometry(6.6, 0.56), DISPLAYS.overhead.material); face.position.z = 0.152; oh.add(face);
-    interactive(face, { name: 'Overhead instrument panel', hint: 'Rudders · ROT · heading · speed · RPM · wind · depth. Click to enlarge', click: () => UI.zoomDisplay('overhead') });
+    interactive(face, { name: 'Overhead instrument panel', hint: 'Rudders · ROT · heading · speed · RPM · wind · depth', zoom: 'overhead' });
     for (const x of [-3, 3]) B.box(M.frame, 0.08, 0.3, 0.08, x, H - 0.1, -5.5);
     // echo sounder unit hangs next to it
     const es = new THREE.Group(); es.position.set(4.6, H - 0.42, -5.45); es.rotation.x = 0.38; bg.add(es);
     es.add(new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.8, 0.2), M.consoleDark));
     const esf = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.72), DISPLAYS.echo.material); esf.position.z = 0.102; es.add(esf);
-    interactive(esf, { name: 'Echo sounder', hint: 'Depth below keel & seabed profile. Click to enlarge', click: () => UI.zoomDisplay('echo') });
+    interactive(esf, { name: 'Echo sounder', hint: 'Depth below keel & seabed profile', zoom: 'echo' });
     // clocks
     const clk = new THREE.Group(); clk.position.set(-4.4, H - 0.4, -5.45); clk.rotation.x = 0.38; bg.add(clk);
     clk.add(new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.5, 0.15), M.consoleDark));
@@ -422,7 +422,7 @@ function buildBridge(shipGroup) {
     const grp = new THREE.Group(); grp.position.set(xw - sx * 0.5, ch, -4.8); grp.rotation.x = -0.66; bg.add(grp);
     const hs = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.6, 0.07), M.bezel); hs.position.y = 0.3; grp.add(hs);
     const sc = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.54), DISPLAYS.docking.material); sc.position.set(0, 0.3, 0.037); grp.add(sc);
-    interactive(sc, { name: 'Wing docking display', hint: 'Distances to quay, transverse speeds. Click to enlarge', click: () => UI.zoomDisplay('docking') });
+    interactive(sc, { name: 'Wing docking display', hint: 'Distances to quay, transverse speeds', zoom: 'docking' });
     // combined telegraph lever
     const lev = new THREE.Group(); lev.position.set(sx * 0.45, 0, 0.0); p.add(lev);
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.011, 0.2, 10), M.steel); shaft.position.y = 0.1; lev.add(shaft);
@@ -463,14 +463,14 @@ function buildBridge(shipGroup) {
     const ct = chartTableTexture(); registerStatic('chart', 'Paper chart — BA 1234 Westerhaven Approaches', ct);
     const top = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 1.0), new THREE.MeshStandardMaterial({ map: ct, roughness: 0.85 }));
     top.rotation.x = -Math.PI / 2; top.position.set(-9.8, 0.925, 5.25); bg.add(top);
-    interactive(top, { name: 'Chart table – BA 1234 Westerhaven Approaches', hint: 'Paper chart backup & passage plan. Click to read', click: () => UI.zoomDisplay('chart') });
+    interactive(top, { name: 'Chart table – BA 1234 Westerhaven Approaches', hint: 'Paper chart backup & passage plan', zoom: 'chart' });
     const lampArm = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.8, 6), M.steel); lampArm.position.set(-10.9, 1.3, 5.6); lampArm.rotation.z = 0.5; bg.add(lampArm);
     const shade = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.14, 12, 1, true), M.black); shade.position.set(-10.7, 1.66, 5.5); bg.add(shade);
     // parallel rulers / dividers
     B.box(std(0xd6d0b8, 0.5), 0.6, 0.012, 0.08, -9.6, 0.935, 5.1, 0.3);
     const pc = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.42), new THREE.MeshStandardMaterial({ map: (() => { const t = pilotCardTexture(); registerStatic('pilotcard', 'Pilot card', t); return t; })(), roughness: 0.8 }));
     pc.rotation.x = -Math.PI / 2; pc.rotation.z = 0.2; pc.position.set(-8.9, 0.94, 5.35); bg.add(pc);
-    interactive(pc, { name: 'Pilot card', hint: 'Ship\'s particulars & manoeuvring data for the pilot', click: () => UI.zoomDisplay('pilotcard') });
+    interactive(pc, { name: 'Pilot card', hint: 'Ship\'s particulars & manoeuvring data for the pilot', zoom: 'pilotcard' });
     addCollider(-11.05, -8.55, 4.65, 6);
     // publications shelf
     for (let k = 0; k < 16; k++) B.box(std([0x1f3e6e, 0x6e1f1f, 0x2f5a2f, 0x6e5a1f][k % 4], 0.8), 0.06, 0.3, 0.22, -11.8 + k * 0.08, 1.95, 5.8);
@@ -484,7 +484,7 @@ function buildBridge(shipGroup) {
     for (const [dx, key] of [[-0.8, 'gmdss'], [0.1, 'gmdss'], [0.9, 'navtex']]) {
       const h = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.42, 0.06), M.bezel); h.position.set(dx, 0.25, 0); gm.add(h);
       const s = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.36), DISPLAYS[key].material); s.position.set(dx, 0.25, 0.031); gm.add(s);
-      interactive(s, { name: key === 'navtex' ? 'NAVTEX receiver' : 'GMDSS – MF/HF DSC & Inmarsat-C', hint: 'Click to read', click: () => UI.zoomDisplay(key) });
+      interactive(s, { name: key === 'navtex' ? 'NAVTEX receiver' : 'GMDSS – MF/HF DSC & Inmarsat-C', zoom: key });
     }
     const cover = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.1), new THREE.MeshStandardMaterial({ color: 0xcc2211, transparent: true, opacity: 0.8 })); cover.position.set(-0.9, 0.03, -0.1); p.add(cover);
     interactive(cover, { name: 'DISTRESS button (covered)', hint: 'Sends a DSC distress alert. Not today.', click: () => UI.sub('2/O', 'Captain, please — that is the distress button. We are fine!', 'o2') });
@@ -506,7 +506,7 @@ function buildBridge(shipGroup) {
     // notice boards / particulars poster
     const poster = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.85), new THREE.MeshStandardMaterial({ map: (() => { const t = particularsTexture(); registerStatic('particulars', 'Wheelhouse poster', t); return t; })(), roughness: 0.8 }));
     poster.position.set(-2.0, 1.65, 5.92); poster.rotation.y = Math.PI; bg.add(poster);
-    interactive(poster, { name: 'Wheelhouse poster – manoeuvring characteristics', hint: 'IMO manoeuvring booklet summary. Click to read', click: () => UI.zoomDisplay('particulars') });
+    interactive(poster, { name: 'Wheelhouse poster – manoeuvring characteristics', hint: 'IMO manoeuvring booklet summary', zoom: 'particulars' });
     const alarmPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.6), DISPLAYS.fire.material); alarmPanel.position.set(2.0, 1.6, 5.92); alarmPanel.rotation.y = Math.PI; bg.add(alarmPanel);
     interactive(alarmPanel, { name: 'Fire detection panel', hint: 'All zones normal' });
   }
@@ -536,11 +536,12 @@ function buildBridge(shipGroup) {
   BR.nodes = {
     door: [0, 5.3], aftC: [0, 2.6], helm: [0, -3.2], conL: [-2.2, -3.45], conR: [2.2, -3.45], pilot: [-1.1, -3.45], tele: [1.1, -3.4],
     ecdL: [-4.4, -3.45], ecdR: [4.4, -3.45], aftL: [-7.5, 2.6], aftR: [7.5, 2.6], chart: [-9.8, 4.3], gmdss: [9.8, 4.3],
-    sideL: [-7.8, -3.9], sideR: [7.8, -3.9], wingL: [-26.5, -3.2], wingR: [26.5, -3.2], midL: [-16, -3.0], midR: [16, -3.0], coffee: [-4.5, 4.6],
+    sideL: [-7.8, -3.9], sideR: [7.8, -3.9], radarL: [-5.5, -3.45], radarR: [5.5, -3.45], apL: [-3.3, -3.45], dockR: [3.3, -3.45], wingL: [-26.5, -3.2], wingR: [26.5, -3.2], midL: [-16, -3.0], midR: [16, -3.0], coffee: [-4.5, 4.6],
   };
   BR.edges = [['door', 'aftC'], ['aftC', 'helm'], ['aftC', 'pilot'], ['aftC', 'tele'], ['helm', 'pilot'], ['helm', 'tele'], ['pilot', 'conL'], ['tele', 'conR'], ['conL', 'ecdL'], ['conR', 'ecdR'],
     ['aftC', 'aftL'], ['aftC', 'aftR'], ['aftL', 'chart'], ['aftR', 'gmdss'], ['ecdL', 'sideL'], ['ecdR', 'sideR'], ['sideL', 'midL'], ['sideR', 'midR'], 
-    ['midL', 'wingL'], ['midR', 'wingR'], ['aftC', 'coffee'], ['aftL', 'coffee']];
+    ['midL', 'wingL'], ['midR', 'wingR'], ['aftC', 'coffee'], ['aftL', 'coffee'],
+    ['conL', 'apL'], ['apL', 'ecdL'], ['ecdL', 'radarL'], ['radarL', 'sideL'], ['conR', 'dockR'], ['dockR', 'ecdR'], ['ecdR', 'radarR'], ['radarR', 'sideR']];
   return bg;
 }
 
@@ -679,11 +680,7 @@ function requestEngineMode(m) {
   G.pendingMode = m;
   BR.controls.engBtns[m].setLit(true, 0xffb020);
   CREW.say('ce', { STANDBY: 'Engine room. Stand-by engine, understood. Changing over to manoeuvring — give us a minute.', SEA: 'Engine room, sea passage mode, understood.', FWE: 'Engine room: finished with engines, copied. Thank you, Captain.' }[m], true);
-  SCN.later(m === 'STANDBY' ? 30 : 6, () => {
-    s.engineMode = m; G.pendingMode = null;
-    CREW.say('ce', { STANDBY: 'Bridge, engine room: engines on stand-by. Manoeuvring mode, astern available.', SEA: 'Bridge: sea mode.', FWE: 'Bridge: engines secured.' }[m], true);
-    SCN.flag('eng_' + m);
-  });
+  SCN.later(m === 'STANDBY' ? 30 : 6, 'engMode', m);
 }
 function thrStep(d, which) {
   const s = G.ship;
@@ -698,7 +695,7 @@ function startThrusters() {
   G.thrStarting = true;
   BR.controls.btStart.setLit(true, 0xffb020);
   CREW.say('ce', 'Bridge, starting bow thruster motors. Second generator on line.', true);
-  SCN.later(20, () => { G.thrReady = true; G.thrStarting = false; BR.controls.btStart.setLit(true, 0x40ff80); UI.toast('Bow thrusters READY'); SCN.flag('bt'); });
+  SCN.later(20, 'thrReady');
 }
 function vhfStep(d) {
   const chans = [6, 8, 10, 11, 12, 13, 14, 16, 67, 72];

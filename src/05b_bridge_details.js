@@ -323,11 +323,11 @@ function addBridgeDetails(bg, M, B) {
 
   // ---------- aft wall furniture & nautical fittings
   const wallZ = za - 0.085;
-  const framed = (tex, x, y, w, h, name, hint, click) => {
+  const framed = (tex, x, y, w, h, name, hint, zoomKey) => {
     B.box(M.teak, w + 0.08, h + 0.08, 0.03, x, y, wallZ - 0.01);
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 }));
     m.position.set(x, y, wallZ - 0.03); m.rotation.y = Math.PI; bg.add(m);
-    if (name) interactive(m, { name, hint: hint || '', click });
+    if (name) interactive(m, { name, hint: hint || '', zoom: zoomKey });
     return m;
   };
   // lifebuoys
@@ -338,7 +338,7 @@ function addBridgeDetails(bg, M, B) {
     interactive(lb, { name: 'Lifebuoy with light & smoke signal', hint: 'MAJESTIC MAERSK — KØBENHAVN' });
   }
   const ics = icsFlagsTexture(); registerStatic('ics', 'International Code of Signals', ics);
-  framed(ics, 5.0, 1.9, 1.0, 0.75, 'International Code of Signals', 'Click to read — flag H means “I have a pilot on board”', () => UI.zoomDisplay('ics'));
+  framed(ics, 5.0, 1.9, 1.0, 0.75, 'International Code of Signals', 'Flag H means “I have a pilot on board”', 'ics');
   framed(framedArtTexture('safety'), -7.2, 1.8, 1.0, 0.62, 'Fire & safety plan', 'Locations of extinguishers, hydrants and escape routes');
   framed(framedArtTexture('ship'), -4.5, 1.85, 1.0, 0.62, 'Framed photo', 'MAJESTIC MAERSK on sea trials off Okpo, 2013');
   // brass clock & barometer on a teak plaque
@@ -454,7 +454,7 @@ function addBridgeDetails(bg, M, B) {
       const g = new THREE.Group(); g.position.set(x, hh, z0 + 0.25); g.rotation.x = 0.5; g.rotation.y = Math.PI; bg.add(g);
       g.add(meshAt(new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.6, 0.06), M.bezel), 0, 0.3, 0));
       const sc = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.55), DISPLAYS[k].material); sc.position.set(0, 0.3, 0.032); g.add(sc);
-      interactive(sc, { name, hint: 'Click to view full screen', click: () => UI.zoomDisplay(k) });
+      interactive(sc, { name, zoom: k });
     });
     B.box(M.black, 0.45, 0.02, 0.16, cx0 + 1.65, hh + 0.01, z1 - 0.2);
     buildChair(bg, cx0 + 1.65, z1 + 0.75, M);
@@ -470,7 +470,7 @@ function addBridgeDetails(bg, M, B) {
     mon.add(meshAt(new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.38, 0.04), M.bezel), 0, 0.3, 0));
     const ms = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.33), DISPLAYS.office.material); ms.position.set(0, 0.3, 0.021); mon.add(ms);
     B.box(M.greyBox, 0.05, 0.12, 0.05, -4.4, 0.85, dz0 + 0.2);
-    interactive(ms, { name: 'Ship\'s office PC', hint: 'Voyage orders, port information, crew list. Click to read', click: () => UI.zoomDisplay('office') });
+    interactive(ms, { name: 'Ship\'s office PC', hint: 'Voyage orders, port information, crew list', zoom: 'office' });
     B.box(M.black, 0.42, 0.02, 0.14, -4.4, 0.8, dz0 + 0.55); B.box(M.black, 0.07, 0.02, 0.1, -4.0, 0.8, dz0 + 0.55);
     B.box(std(0xe8e8e4, 0.5), 0.45, 0.22, 0.38, -5.45, 0.9, dz0 + 0.3);             // printer
     B.box(std(0xfbfbf7, 0.8), 0.21, 0.005, 0.3, -3.35, 0.79, dz0 + 0.45, 0.2);      // papers
@@ -498,7 +498,7 @@ function addBridgeDetails(bg, M, B) {
     const tv = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.62), DISPLAYS.cctv.material);
     tv.position.set(BR.CW - 0.1, 2.1, 4.4); tv.rotation.y = -Math.PI / 2; bg.add(tv);
     B.box(M.black, 0.05, 0.68, 1.16, BR.CW - 0.07, 2.1, 4.4);
-    interactive(tv, { name: 'CCTV monitor', hint: 'Mooring stations fore & aft, hold 3, engine room. Click to enlarge', click: () => UI.zoomDisplay('cctv') });
+    interactive(tv, { name: 'CCTV monitor', hint: 'Mooring stations fore & aft, hold 3, engine room', zoom: 'cctv' });
     // tall publication & equipment cabinets
     for (const [x, z] of [[-BR.CW + 0.35, 2.6], [BR.CW - 0.35, 2.6]]) { B.add(boxUV(0.6, 2.0, 1.1, 1.1), M.consoleDoors, MX(x, 1.0, z)); addCollider(x - 0.3, x + 0.3, z - 0.55, z + 0.55); }
     // waste bin & fire extinguisher by the office

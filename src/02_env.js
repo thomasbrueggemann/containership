@@ -138,9 +138,10 @@ function buildOcean() {
     uSunDir: { value: ENV.sunDir.clone() }, uSunCol: { value: new THREE.Color(P.sunCol).multiplyScalar(P.night ? 0.6 : 1.0) },
     uDeep: { value: new THREE.Vector3(...P.deep) }, uNight: { value: P.night ? 1 : 0 },
     uSkyAmb: { value: new THREE.Color(P.hemiSky).multiplyScalar(P.night ? 0.05 : 0.45) },
-    uSea: { value: 0.75 }, uCaps: { value: 0.3 }, uWindAng: { value: 0.8 },
+    uSea: { value: 0.75 }, uCaps: { value: 0.3 }, uWindAng: { value: 0.8 }, uRipple: { value: null },
   }]);
   uniforms.uEnv.value = ENV.cubeRT.texture;
+  uniforms.uRipple.value = rippleNormalTexture();
   const mat = new THREE.ShaderMaterial({
     uniforms, fog: true,
     vertexShader: `
@@ -161,7 +162,7 @@ function buildOcean() {
       #include <fog_pars_fragment>
       #include <logdepthbuf_pars_fragment>
       uniform float uTime, uNight, uHasRefl, uSea, uCaps, uWindAng;
-      uniform samplerCube uEnv; uniform sampler2D uRefl; uniform mat4 uTexMatrix;
+      uniform samplerCube uEnv; uniform sampler2D uRefl; uniform sampler2D uRipple; uniform mat4 uTexMatrix;
       uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uDeep; uniform vec3 uSkyAmb;
       varying vec3 vWorld;
       float h1(float n){ return fract(sin(n * 12.9898) * 43758.5453); }
@@ -169,6 +170,8 @@ function buildOcean() {
         float a = h1(dot(i, vec2(1.0, 57.0))), b = h1(dot(i + vec2(1.0, 0.0), vec2(1.0, 57.0)));
         float c = h1(dot(i + vec2(0.0, 1.0), vec2(1.0, 57.0))), d = h1(dot(i + vec2(1.0, 1.0), vec2(1.0, 57.0)));
         return mix(mix(a, b, f.x), mix(c, d, f.x), f.y); }
+      // tileable ripple slopes, three layers drifting with the wind at different speeds
+      vec2 ripple(vec2 uv){ return texture2D(uRipple, uv).xy * 2.0 - 1.0; }
       void main(){
         #include <logdepthbuf_fragment>
         vec3 V = cameraPosition - vWorld; float dist = length(V); V /= dist;
@@ -177,29 +180,42 @@ function buildOcean() {
         float pix = dist * 0.0017 / max(V.y, 0.06);
         // wind patches / cat's paws: slow large-scale modulation of the short waves
         float patchy = 0.45 + 1.1 * vn(p / 850.0 + uTime * vec2(0.0035, 0.002)) * (0.6 + 0.8 * vn(p / 230.0 - uTime * 0.005));
-        vec2 slope = vec2(0.0); float h = 0.0, hsq = 0.0;
+        vec2 slope = vec2(0.0); float h = 0.0, hsq = 0.0, lost = 0.0;
         float wl = 170.0;
         for (int i = 0; i < 34; i++) {
           float fi = float(i);
-          float spread = 0.35 + fi * 0.04;
+          float spread = 0.55 + fi * 0.035;
           float a = uWindAng + (h1(fi * 3.17 + 1.3) - 0.5) * 2.0 * spread;
           vec2 dir = vec2(cos(a), sin(a));
           float k = 6.2831853 / wl;
           float w = sqrt(9.81 * k);
-          float A = wl * 0.0072 * uSea * (i < 5 ? 0.8 : patchy);
+          float A = wl * 0.0088 * uSea * (i < 5 ? 0.85 : patchy);
           float fade = clamp((wl - 2.2 * pix) / (2.2 * pix), 0.0, 1.0);
           float ph = k * dot(dir, p) - w * uTime + h1(fi * 7.7) * 6.2831853;
           slope += dir * (k * A * cos(ph) * fade);
           float hs = A * sin(ph) * fade;
           h += hs; hsq += A * A * fade * 0.5;
+          lost += k * k * A * A * 0.5 * (1.0 - fade);   // slope variance too fine to resolve -> roughness
           wl *= 0.845;
         }
         float rms = sqrt(hsq) + 1e-4;
+        // drifting capillary / wind ripples (mip-mapped texture: fades out gracefully with distance)
+        vec2 wd = vec2(cos(uWindAng), sin(uWindAng)), wp = vec2(-wd.y, wd.x);
+        vec2 q = vec2(dot(p, wd), dot(p, wp));
+        float rip = uSea * (0.55 + 0.45 * patchy);
+        vec2 r1 = ripple(q / 47.0 - vec2(uTime * 0.045, 0.0));
+        vec2 r2 = ripple(q.yx / 17.0 + vec2(uTime * 0.012, -uTime * 0.07));
+        vec2 r3 = ripple(q / 6.3 - vec2(uTime * 0.16, uTime * 0.03));
+        vec2 rs = r1 * 0.13 + r2 * 0.1 + r3 * 0.07;
+        slope += vec2(rs.x * wd.x + rs.y * wp.x, rs.x * wd.y + rs.y * wp.y) * rip;
+        lost += rip * rip * 0.0035 * smoothstep(150.0, 2500.0, dist);
         vec3 N = normalize(vec3(-slope.x, 1.0, -slope.y));
-        float NdV = max(dot(N, V), 0.0);
+        // unresolved micro-slopes tilt facets towards the viewer: less mirror-like at grazing angles
+        float NdV = clamp(max(dot(N, V), 0.0) + sqrt(lost) * 0.8, 0.0, 1.0);
         float F = 0.02 + 0.98 * pow(1.0 - NdV, 5.0);
         vec3 R = reflect(-V, N); R.y = abs(R.y) + 0.01;
-        vec3 cubeRefl = textureCube(uEnv, R).rgb;
+        float blur = clamp(log2(1.0 + lost * 900.0), 0.0, 4.0);
+        vec3 cubeRefl = textureCube(uEnv, R, blur).rgb;
         vec3 refl = cubeRefl;
         if (uHasRefl > 0.5) {
           vec4 rp = uTexMatrix * vec4(vWorld.x, 0.0, vWorld.z, 1.0);
@@ -216,7 +232,7 @@ function buildOcean() {
         // light scattering through the crests (green/teal)
         body += vec3(0.02, 0.075, 0.07) * pow(crest, 2.5) * sunUp * (0.4 + 0.6 * max(0.0, dot(-V, uSunDir)));
         vec3 col = mix(body, refl, clamp(F, 0.0, 1.0));
-        float rough = mix(1500.0, 70.0, smoothstep(120.0, 7000.0, dist));
+        float rough = min(mix(1500.0, 70.0, smoothstep(120.0, 7000.0, dist)), 1.0 / (0.0006 + lost * 1.6));
         float sd = max(dot(R, uSunDir), 0.0);
         col += uSunCol * (pow(sd, rough) * rough * 0.055 + pow(sd, 30.0) * 0.04) * step(0.0, uSunDir.y);
         // whitecaps on the steepest crests
@@ -244,6 +260,32 @@ function buildOcean() {
     uniforms.uRefl.value = rt.texture; uniforms.uHasRefl.value = 1;
     addEventListener('resize', () => rt.setSize(Math.round(innerWidth * k), Math.round(innerHeight * k)));
   }
+}
+
+// Tileable slope map (RG = d/dx, d/dy) from integer-wavevector sinusoids with a
+// wind-sea-like 1/k spectrum. Mip-mapped + anisotropic so it never aliases.
+function rippleNormalTexture() {
+  const N = 256, data = new Uint8Array(N * N * 4), sx = new Float32Array(N * N), sz = new Float32Array(N * N);
+  const R = mulberry32(99), waves = [];
+  for (let i = 0; i < 56; i++) {
+    let kx, kz; do { kx = Math.round((R() - 0.5) * 2 * 36); kz = Math.round((R() - 0.5) * 2 * 36); } while (Math.hypot(kx, kz) < 2.5 || Math.hypot(kx, kz) > 36);
+    const km = Math.hypot(kx, kz);
+    waves.push([kx, kz, 1 / Math.pow(km, 1.35), R() * Math.PI * 2]);
+  }
+  let mx = 0;
+  for (const [kx, kz, a, ph] of waves) {
+    const fx = 2 * Math.PI * kx / N, fz = 2 * Math.PI * kz / N;
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const c = Math.cos(fx * x + fz * y + ph) * a * N / 12;
+      sx[y * N + x] += c * fx; sz[y * N + x] += c * fz;
+    }
+  }
+  for (let i = 0; i < N * N; i++) mx = Math.max(mx, Math.abs(sx[i]), Math.abs(sz[i]));
+  for (let i = 0; i < N * N; i++) { data[i * 4] = 128 + 127 * sx[i] / mx; data[i * 4 + 1] = 128 + 127 * sz[i] / mx; data[i * 4 + 2] = 255; data[i * 4 + 3] = 255; }
+  const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true; t.anisotropy = 8; t.colorSpace = THREE.NoColorSpace; t.needsUpdate = true;
+  return t;
 }
 
 const _rv = { p: new THREE.Vector3(), d: new THREE.Vector3(), u: new THREE.Vector3() };

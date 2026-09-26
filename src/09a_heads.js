@@ -89,7 +89,7 @@ const HEADS = {
     head.setAttribute('position', Pn); head.setAttribute('normal', N); head.setAttribute('uv', U);
     head.setIndex(keep);
     this.headGeo = head;
-    this.hairIdx = hair; this.N = N; this.U = U; this.hairline = hairline;
+    this.hairIdx = hair; this.keepIdx = keep; this.N = N; this.U = U; this.hairline = hairline;
     // eyelid lash lines following the upper and lower edges of each opening
     const sampleZ = (x, y) => { let best = 1e9, bz = 0; for (let i = 0; i < Pn.count; i++) { if (!used[i]) continue; const d = Math.hypot(Pn.getX(i) - x, Pn.getY(i) - y); if (Pn.getZ(i) > 0.8 && d < best) { best = d; bz = Pn.getZ(i); } } return bz; };
     this.lashGeos = this.eyes.map((e) => {
@@ -98,14 +98,25 @@ const HEADS = {
       return [mk(1, 0.026), mk(-1, 0.01)];
     });
   },
-  hairGeo(style) {
-    const th = { short: [0.2, 0.08], side: [0.3, 0.12], crop: [0.07, 0.05], grey: [0.14, 0.07], receding: [0.12, 0.06] }[style] || [0.2, 0.08];
-    const P = this.P, N = this.N, idx = this.hairIdx;
+  hairGeo(style, female) {
+    const th = { short: [0.2, 0.08], side: [0.3, 0.12], bun: [0.26, 0.12], crop: [0.07, 0.05], grey: [0.14, 0.07], receding: [0.12, 0.06] }[style] || [0.2, 0.08];
+    const P = female ? this.femaleGeo().attributes.position : this.P, N = this.N;
+    // long hair pulled back: a lower line over the temples and the tops of the ears, down to the nape
+    const long = style === 'bun';
+    const hl = long ? (x, y, z) => { let d = this.hairline(x, y, z) - (z > 1.1 ? 0.08 : 0); if (Math.abs(x) > 1.5 && z > -1.0 && z < 1.2) d = Math.max(d, y - 1.95); if (z < -0.9) d = Math.max(d, y - 0.35); return d; } : this.hairline;
+    let idx = this.hairIdx;
+    if (long) {
+      idx = []; const K = this.keepIdx, c = (i0, i1, i2, f) => (f(i0) + f(i1) + f(i2)) / 3;
+      for (let t = 0; t < K.length; t += 3) {
+        const [i0, i1, i2] = [K[t], K[t + 1], K[t + 2]];
+        if (hl(c(i0, i1, i2, (i) => P.getX(i)), c(i0, i1, i2, (i) => P.getY(i)), c(i0, i1, i2, (i) => P.getZ(i))) > -0.35) idx.push(i0, i1, i2);
+      }
+    }
     const map = new Map(), pos = [], uv = [], col = [], out = [];
     for (const i of idx) {
       if (!map.has(i)) {
         const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
-        let d = this.hairline(x, y, z);
+        let d = hl(x, y, z);
         if (style === 'receding' && z > 0.6) d = Math.min(d, y - 3.35);
         const t = (th[1] + (th[0] - th[1]) * smooth(2.4, 3.8, y)) * smooth(0, 0.3, d) + 0.02;
         pos.push(x + N.getX(i) * t, y + N.getY(i) * t, z + N.getZ(i) * t);
@@ -147,6 +158,11 @@ const HEADS = {
       }
       x.restore();
     }
+    if (o.lips) {
+      // a touch of colour on the lips and cheeks
+      x.save(); x.filter = 'blur(6px)'; x.fillStyle = o.lips; x.beginPath(); x.ellipse(512, 480, 62, 20, 0, 0, 7); x.fill(); x.restore();
+      x.save(); x.filter = 'blur(30px)'; x.fillStyle = 'rgba(200,90,90,0.10)'; for (const cx of [380, 644]) { x.beginPath(); x.ellipse(cx, 420, 60, 40, 0, 0, 7); x.fill(); } x.restore();
+    }
     // brows & lash line in the person's hair colour
     // skin tone
     x.save(); x.globalCompositeOperation = 'multiply'; x.fillStyle = o.tone || '#ffffff'; x.fillRect(0, 0, 1024, 1024); x.restore();
@@ -155,17 +171,18 @@ const HEADS = {
     const t = canvasTexture(c); t.anisotropy = 8;
     return t;
   },
-  hairTexture(col, seed = 1) {
+  hairTexture(col, seed = 1, long = false) {
     const c = makeCanvas(512, 512), x = c.getContext('2d');
     // alpha 0.6–1 strand noise feathers the hairline against the vertex-alpha ramp (alphaTest 0.5)
     x.globalAlpha = 0.6; x.fillStyle = col; x.fillRect(0, 0, 512, 512); x.globalAlpha = 1;
     const R = mulberry32(seed);
     x.strokeStyle = col; x.lineWidth = 1.4;
-    for (let i = 0; i < 7000; i++) { const px = R() * 512, py = R() * 512; x.beginPath(); x.moveTo(px, py); x.lineTo(px + (R() - 0.5) * 3, py + 5 + R() * 9); x.stroke(); }
+    const len = long ? 4 : 1;   // long, combed strands vs short cropped hair
+    for (let i = 0; i < 7000; i++) { const px = R() * 512, py = R() * 512; x.beginPath(); x.moveTo(px, py); x.lineTo(px + (R() - 0.5) * 3, py + (5 + R() * 9) * len); x.stroke(); }
     for (let i = 0; i < 9000; i++) {
       const px = R() * 512, py = R() * 512;
-      x.strokeStyle = R() < 0.5 ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.12)'; x.lineWidth = 0.8;
-      x.beginPath(); x.moveTo(px, py); x.lineTo(px + (R() - 0.5) * 4, py + 6 + R() * 10); x.stroke();
+      x.strokeStyle = R() < 0.5 ? `rgba(0,0,0,${long ? 0.15 : 0.25})` : `rgba(255,255,255,${long ? 0.07 : 0.12})`; x.lineWidth = 0.8;
+      x.beginPath(); x.moveTo(px, py); x.lineTo(px + (R() - 0.5) * 4, py + (6 + R() * 10) * len); x.stroke();
     }
     return canvasTexture(c);
   },
@@ -183,6 +200,21 @@ const HEADS = {
     x.restore();
     return canvasTexture(c);
   },
+  // Softer, narrower jaw and chin for female crew (the scan is a male head).
+  femaleGeo() {
+    if (this._fem) return this._fem;
+    const P = this.P.clone(), ey = (this.eyes[0].y + this.eyes[1].y) / 2;
+    for (let i = 0; i < P.count; i++) {
+      const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+      const low = smooth(ey - 0.5, ey - 2.4, y);                  // 0 below the eyes → 1 at the chin
+      const k = 1 - 0.13 * low;
+      P.setX(i, x * k);
+      if (z > 0.6) P.setZ(i, z - 0.12 * low * smooth(0.6, 1.8, z)); // less prominent chin
+      if (y > ey + 0.3 && z > 1.2) P.setZ(i, P.getZ(i) - 0.06 * smooth(ey + 0.3, ey + 0.9, y) * (1 - smooth(ey + 1.4, ey + 2.2, y))); // softer brow ridge
+    }
+    const g = this.headGeo.clone(); g.setAttribute('position', P);
+    return (this._fem = g);
+  },
   // Returns a group in head-local space (faces -z) and the matching skin colour
   build(o) {
     const S = this.S, grp = new THREE.Group();
@@ -192,7 +224,7 @@ const HEADS = {
     grp.add(inner);
     const skinMap = this.skinTexture(o);
     const skinMat = new THREE.MeshStandardMaterial({ map: skinMap, normalMap: this.nrm, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.58, metalness: 0, envMapIntensity: 0.5 });
-    const head = new THREE.Mesh(this.headGeo, skinMat); head.castShadow = true; head.receiveShadow = true; inner.add(head);
+    const head = new THREE.Mesh(o.female ? this.femaleGeo() : this.headGeo, skinMat); head.castShadow = true; head.receiveShadow = true; inner.add(head);
     // eye sockets (dark back-face so the openings never show through the skull)
     const socketMat = new THREE.MeshStandardMaterial({ color: 0x5a2c26, roughness: 0.6 });
     const irisMat = new THREE.MeshStandardMaterial({ map: this.irisTexture(o.iris || '#5a3a22'), roughness: 0.12, metalness: 0, envMapIntensity: 0.8 });
@@ -205,8 +237,14 @@ const HEADS = {
     const lashMat = new THREE.MeshStandardMaterial({ color: 0x120c0a, roughness: 0.9 });
     for (const [up, lo] of this.lashGeos) { inner.add(new THREE.Mesh(up, lashMat)); inner.add(new THREE.Mesh(lo, lashMat)); }
     if (o.hairStyle && o.hairStyle !== 'bald') {
-      const hm = new THREE.MeshStandardMaterial({ map: this.hairTexture(o.hairCol || '#2a1c12', o.seed || 1), vertexColors: true, alphaTest: 0.5, roughness: 0.75, metalness: 0.0 });
-      const hair = new THREE.Mesh(this.hairGeo(o.hairStyle), hm); hair.castShadow = true; inner.add(hair);
+      const hm = new THREE.MeshStandardMaterial({ map: this.hairTexture(o.hairCol || '#2a1c12', o.seed || 1, o.female), vertexColors: true, alphaTest: 0.5, roughness: 0.75, metalness: 0.0 });
+      const hair = new THREE.Mesh(this.hairGeo(o.hairStyle, o.female), hm); hair.castShadow = true; inner.add(hair);
+      if (o.hairStyle === 'bun') {
+        // hair gathered into a low bun at the back of the head
+        const bm = new THREE.MeshStandardMaterial({ map: this.hairTexture(o.hairCol || '#2a1c12', (o.seed || 1) + 7, true), roughness: 0.75 });
+        const bun = new THREE.Mesh(new THREE.SphereGeometry(0.85, 18, 14), bm); bun.scale.set(1.15, 0.95, 0.85); bun.position.set(0, 1.55, -2.35); bun.castShadow = true; inner.add(bun);
+        const tie = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.1, 8, 20), new THREE.MeshStandardMaterial({ color: 0x1a2233, roughness: 0.6 })); tie.position.set(0, 1.62, -1.85); inner.add(tie);
+      }
     }
     return { group: grp, skin: this._lastSkin, eyes };
   },

@@ -30,7 +30,7 @@ const TRAFFIC = {
     for (const o of this.ships) {
       if (!o.active) { if (o.trigger && o.trigger()) { o.active = true; o.grp.visible = true; o.sog = o.speed; SCN.onTraffic(o); } continue; }
       let tx, tz;
-      if (o.wps) { const w = o.wps[o.wpi]; if (!w) { o.active = false; o.grp.visible = false; continue; } tx = w[0]; tz = w[1]; if (Math.hypot(tx - o.x, tz - o.z) < 150) o.wpi++; }
+      if (o.wps) { const w = o.wps[o.wpi]; if (!w) { o.active = false; o.done = true; o.trigger = null; o.grp.visible = false; continue; } tx = w[0]; tz = w[1]; if (Math.hypot(tx - o.x, tz - o.z) < 150) o.wpi++; }
       else if (o.wander) { if (!o.tgt || Math.hypot(o.tgt[0] - o.x, o.tgt[1] - o.z) < 60) o.tgt = [rr(o.wander.x0, o.wander.x1), rr(o.wander.z0, o.wander.z1)]; [tx, tz] = o.tgt; }
       else if (o.circle) { const a = Math.atan2(o.z - o.circle.cz, o.x - o.circle.cx) + 0.25; tx = o.circle.cx + Math.cos(a) * o.circle.r; tz = o.circle.cz + Math.sin(a) * o.circle.r; }
       const want = Math.atan2(tx - o.x, -(tz - o.z));
@@ -106,7 +106,7 @@ const PILOTBOAT = {
       this.x = lerp(this.x, ax, Math.min(1, dt * 0.8)); this.z = lerp(this.z, az, Math.min(1, dt * 0.8)); this.psi = s.psi; this.sog = s.sog;
       const okSpeed = s.sog / KN > 5 && s.sog / KN < 10.5, okHdg = Math.abs(wrap180(s.psi / DEG - 90)) < 25;
       if (okSpeed && okHdg && G.flags.ladder) this.alongT += dt;
-      else if (Math.floor(G.simT) % 20 === 0 && !this._nag) { this._nag = true; SCN.say('pb', !G.flags.ladder ? 'Majestic Maersk, pilot boat: I see no ladder! ' + G.flags.leeSide + ' side please.' : !okSpeed ? 'Majestic Maersk, pilot boat: speed ' + (s.sog / KN).toFixed(0) + ' knots — we need six to ten.' : 'Majestic Maersk, pilot boat: please steady on about zero-nine-zero for the lee.', true); SCN.later(40, () => (this._nag = false)); }
+      else if (Math.floor(G.simT) % 20 === 0 && !this._nag) { this._nag = true; SCN.say('pb', !G.flags.ladder ? 'Majestic Maersk, pilot boat: I see no ladder! ' + G.flags.leeSide + ' side please.' : !okSpeed ? 'Majestic Maersk, pilot boat: speed ' + (s.sog / KN).toFixed(0) + ' knots — we need six to ten.' : 'Majestic Maersk, pilot boat: please steady on about zero-nine-zero for the lee.', true); SCN.later(40, 'pbNag'); }
       if (this.alongT > 45) { this.state = 'leave'; SCN.pilotBoarded(); }
       this.grp.position.set(this.x, Math.sin(G.simT * 2) * 0.35, this.z); this.grp.rotation.y = -this.psi; this.grp.rotation.z = Math.sin(G.simT * 1.7) * 0.05;
       this.wake.update(dt, this.x - Math.sin(this.psi) * 9, this.z + Math.cos(this.psi) * 9, -Math.sin(this.psi), Math.cos(this.psi), 0.6);

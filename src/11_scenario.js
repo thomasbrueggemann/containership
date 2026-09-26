@@ -66,7 +66,38 @@ const SCN = {
   },
   say(id, t, radio) { CREW.say(id, t, radio); },
   flag(k) { G.flags[k] = true; },
-  later(sec, fn) { this.timers.push({ t: G.simT + sec, fn }); },
+  // Delayed events. Pass a function for throw-away chatter, or the name of a TIMED action
+  // (plus a JSON-able argument) for anything that changes game state, so saves can restore it.
+  later(sec, fn, arg) { this.timers.push(typeof fn === 'string' ? { t: G.simT + sec, key: fn, arg } : { t: G.simT + sec, fn }); },
+  runTimer(t) { if (t.key) this.TIMED[t.key](t.arg); else t.fn(); },
+  TIMED: {
+    engMode(m) {
+      const s = G.ship; s.engineMode = m; G.pendingMode = null;
+      CREW.say('ce', { STANDBY: 'Bridge, engine room: engines on stand-by. Manoeuvring mode, astern available.', SEA: 'Bridge: sea mode.', FWE: 'Bridge: engines secured.' }[m], true);
+      SCN.flag('eng_' + m);
+    },
+    thrReady() { G.thrReady = true; G.thrStarting = false; BR.controls.btStart.setLit(true, 0x40ff80); UI.toast('Bow thrusters READY'); SCN.flag('bt'); },
+    stationReady(st) {
+      G.flags[st + 'Station'] = true; CREW.showStation(st, true);
+      SCN.say(st, st === 'fwd' ? 'Bridge, forward station: manned and ready. Both anchors cleared away, lines ready port and starboard.' : 'Bridge, aft: aft station manned, lines ready, propellers clear.', true);
+      SCN.flag(st + 'Station');
+    },
+    ladderDone() {
+      const F = G.flags; F.ladder = true; F.ladderRigging = false;
+      SCN.say('o3', 'Bridge, pilot ladder rigged ' + F.leeSide.toLowerCase() + ' side, two metres. Deck lights on the ladder. Returning to the bridge.', true);
+      SCN.later(60, 'o3Return');
+    },
+    o3Return() { const o3 = CREW.byId('o3'); o3.enter('tele', () => o3.goHome()); },
+    pilotEnter() {
+      const p = CREW.byId('pilot');
+      p.setHome('pilot', 0, null); p.enter('pilot', () => p.goHome());
+      G.flags.pilotOnBridge = true;
+      SCN.say('pilot', 'Good morning, Captain. Hendrik de Vries, Westerhaven pilots. Thank you for the lee. Pilot card, please — ah, fourteen and a half metres. We go Berth four, port side alongside, two tugs at the breakwater. Keep her on zero-nine-zero at about ten knots.');
+      SCN.later(40, () => { if (!G.flags.hflag) SCN.say('o3', 'Captain, shall I hoist the H flag?'); });
+    },
+    linesFast({ st, side }) { SCN.makeFast(st, side); },
+    pbNag() { PILOTBOAT._nag = false; },
+  },
   recommended(k) {
     const st = this.steps[this.cur]; if (!st) return false;
     const map = { standby: ['o3_sb'], vts: ['o2_vts'], ladder: ['o3_ladder', 'ab_wheel'], pilot: ['ab_course', 'ab_steady'], channel: ['pi_con', 'o3_h', 'pi_advice'], tugs: ['pi_tugs', 'o2_tugs', 'o3_bt'], stations: ['co_fwd', 'o2_aft'], harbour: ['o3_bt', 'pi_advice'], berth: ['pi_tugauto', 'co_dist', 'o2_dist'], lines: ['co_lines', 'o2_lines'], fwe: ['pi_letgo'] };
@@ -75,7 +106,7 @@ const SCN = {
   update(dt) {
     const s = G.ship, F = G.flags;
     // timers
-    for (let i = this.timers.length - 1; i >= 0; i--) if (G.simT >= this.timers[i].t) { const t = this.timers.splice(i, 1)[0]; t.fn(); }
+    for (let i = this.timers.length - 1; i >= 0; i--) if (G.simT >= this.timers[i].t) { const t = this.timers.splice(i, 1)[0]; this.runTimer(t); }
     if (this.done || this.failed) return;
     // step progression (steps may be completed out of order)
     while (this.cur < this.steps.length && this.steps[this.cur].done()) {
@@ -129,18 +160,13 @@ const SCN = {
   },
   pilotBoarded() {
     this.say('pb', 'Pilot is on the ladder… pilot aboard! Thank you, Majestic Maersk.', true);
-    this.later(110, () => {
-      const p = CREW.byId('pilot');
-      p.enter('pilot', () => { p.idleFace = 0; p.pose = null; });
-      G.flags.pilotOnBridge = true;
-      this.say('pilot', 'Good morning, Captain. Hendrik de Vries, Westerhaven pilots. Thank you for the lee. Pilot card, please — ah, fourteen and a half metres. We go Berth four, port side alongside, two tugs at the breakwater. Keep her on zero-nine-zero at about ten knots.');
-      this.later(40, () => { if (!G.flags.hflag) this.say('o3', 'Captain, shall I hoist the H flag?'); });
-    });
+    this.later(110, 'pilotEnter');
   },
   rigLadder() {
     const F = G.flags; F.ladderRigging = true;
     this.say('o3', 'Rigging the pilot ladder on the ' + F.leeSide.toLowerCase() + ' side, two metres above the water. Lifebuoy and heaving line ready.');
-    CREW.byId('o3').leave(() => this.later(140, () => { F.ladder = true; F.ladderRigging = false; this.say('o3', 'Bridge, pilot ladder rigged ' + F.leeSide.toLowerCase() + ' side, two metres. Deck lights on the ladder. Returning to the bridge.', true); this.later(60, () => CREW.byId('o3').enter('tele', () => { CREW.byId('o3').pose = 'console'; })); }));
+    CREW.byId('o3').leave();
+    this.later(150, 'ladderDone');
   },
   // ------------------------------------------------ radio
   vhfCall() {
@@ -156,7 +182,6 @@ const SCN = {
     const s = G.ship, F = G.flags;
     const eta = clockStr(false);
     if (!F.vtsReported) {
-      if (who === 'o2') this.say('o2', 'Calling VTS, Captain.');
       this.say(who === 'o2' ? 'o2' : 'me', 'Westerhaven Traffic, Westerhaven Traffic, this is Majestic Maersk, Majestic Maersk, call sign OYGR2. Inbound, ' + (Math.abs(s.x - GEO.seaBuoy[0]) / NM).toFixed(1) + ' miles from the fairway buoy, draft fourteen decimal five, for Berth four Deepsea Terminal. Over.', true);
       this.later(4, () => {
         this.say('vts', 'Majestic Maersk, Westerhaven Traffic, good morning. Pilot boarding at the boarding place, ladder ' + F.leeSide.toLowerCase() + ' side, two metres, speed eight knots. Outbound HANSA EXPRESS departing, pass port to port in the Westgeul. Tugs available at the breakwater on channel twelve. Report when pilot on board. Over.', true);
@@ -265,29 +290,36 @@ const SCN = {
     const e = bi && (st === 'fwd' ? bi.bow : bi.stern);
     if (!bi || bi.q.id !== 'N' || e.d > 6 || Math.abs(bi.berthOff) > 60) { this.say(st, (st === 'fwd' ? 'Forward' : 'Aft') + ': too far from the quay for the heaving lines, Captain — ' + (e ? e.d.toFixed(0) : '??') + ' metres.', true); return; }
     this.say(st, (st === 'fwd' ? 'Forward: heaving lines ashore… head lines and spring going out.' : 'Aft: stern lines and spring going ashore.'), true);
-    this.later(60, () => {
-      const side = bi.side === 'PORT' ? -1 : 1;
-      const fwd = st === 'fwd';
-      const specs = fwd ? [[192, 60], [175, 5], [150, -70], [185, 45]] : [[-192, -60], [-175, -5], [-150, 70], [-188, -45]];
-      const mat = new THREE.MeshStandardMaterial({ color: fwd ? 0xf2e6b0 : 0xd9e8f2, roughness: 0.85 });
-      for (const [xb, ahead] of specs) {
-        const [wx] = s.toWorld(xb + ahead, 0);
-        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 1, 6, 1, true), mat); scene.add(mesh);
-        this.lineMeshes.push({ mesh, xb, yb: side * 27.5, qx: wx, qz: -703.5 });
-      }
-      F[fwd ? 'linesFwd' : 'linesAft'] = true;
-      this.say(st, (fwd ? 'Forward: all fast, four lines out. ' : 'Aft: all fast aft. ') + 'Tight and holding.', true);
-      if (F.linesFwd && F.linesAft) {
-        const tz = -700 + FENDER + 29.3 + 0.2;
-        s.lines = { tx: s.x, tz, tpsi: Math.abs(wrap180(s.psi / DEG - 90)) < 90 ? 90 * DEG : 270 * DEG, tension: 0 };
-      }
-    });
+    this.later(60, 'linesFast', { st, side: bi.side });
+  },
+  makeFast(st, bside) {
+    const F = G.flags, s = G.ship;
+    const side = bside === 'PORT' ? -1 : 1;
+    const fwd = st === 'fwd';
+    const specs = fwd ? [[192, 60], [175, 5], [150, -70], [185, 45]] : [[-192, -60], [-175, -5], [-150, 70], [-188, -45]];
+    for (const [xb, ahead] of specs) {
+      const [wx] = s.toWorld(xb + ahead, 0);
+      this.addLineMesh(fwd, xb, side * 27.5, wx, -703.5);
+    }
+    F[fwd ? 'linesFwd' : 'linesAft'] = true;
+    this.say(st, (fwd ? 'Forward: all fast, four lines out. ' : 'Aft: all fast aft. ') + 'Tight and holding.', true);
+    if (F.linesFwd && F.linesAft) {
+      const tz = -700 + FENDER + 29.3 + 0.2;
+      s.lines = { tx: s.x, tz, tpsi: Math.abs(wrap180(s.psi / DEG - 90)) < 90 ? 90 * DEG : 270 * DEG, tension: 0 };
+    }
+  },
+  // one mooring line from a fairlead (ship frame xb, yb) to a quay bollard (world qx, qz)
+  addLineMesh(fwd, xb, yb, qx, qz) {
+    const mat = new THREE.MeshStandardMaterial({ color: fwd ? 0xf2e6b0 : 0xd9e8f2, roughness: 0.85 });
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 1, 6, 1, true), mat); scene.add(mesh);
+    this.lineMeshes.push({ mesh, fwd, xb, yb, qx, qz });
   },
   coffee() {
     if (this.once.coffee && G.simT - this.once.coffee < 300) { this.say('co', 'Another one, Captain? That will be the third this watch.'); return; }
     this.once.coffee = G.simT;
     AUDIO.tone(300, 0.6, 'sawtooth', 0.02); AUDIO.tone(220, 1.2, 'sawtooth', 0.015, 0.4);
-    this.say(CREW.byId('co').present ? 'co' : 'o3', pick(['Coffee is on, Captain. Black, as always.', 'Good idea, Captain — long arrival ahead.', 'The pilot will want one too, I am sure.']));
+    const c = ['co', 'o3', 'ab'].map((k) => CREW.byId(k)).find((m) => m && m.present && !(m.id === 'ab' && CREW.atHelm()));
+    if (c) CREW.job(c.id, 'coffee', 'coffee', 5); else this.say('me', '(You pour yourself a coffee.)');
   },
   onTraffic(o) { if (o.name === 'HANSA EXPRESS') this.say('vts', 'All stations, Westerhaven Traffic: HANSA EXPRESS departing Deepsea Terminal, outbound Westgeul. Out.', true); },
   // ------------------------------------------------ contacts

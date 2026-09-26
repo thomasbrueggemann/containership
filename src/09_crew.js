@@ -99,7 +99,8 @@ function buildHuman(o) {
 
 // ------------------------------------------------------------- speech
 const SPEECH = {
-  queue: [], busy: false, voices: [],
+  queue: [], busy: false, voices: [], cur: null,
+  speaking(id) { return this.cur === id || this.queue.some((q) => q.id === id); },
   init() {
     if (!('speechSynthesis' in window)) return;
     const load = () => { this.voices = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang)); };
@@ -107,7 +108,7 @@ const SPEECH = {
   },
   voiceFor(id) {
     const v = this.voices; if (!v.length) return null;
-    const pref = { co: ['Daniel', 'Arthur', 'Oliver', 'Google UK English Male'], o2: ['Rishi', 'Reed', 'Tom', 'Google US English'], o3: ['Rishi', 'Aaron', 'Fred', 'Google US English'], ab: ['Aaron', 'Fred', 'Alex', 'Google US English'],
+    const pref = { co: ['Daniel', 'Arthur', 'Oliver', 'Google UK English Male'], o2: ['Samantha', 'Tessa', 'Fiona', 'Victoria', 'Google US English'], o3: ['Rishi', 'Aaron', 'Fred', 'Google US English'], ab: ['Aaron', 'Fred', 'Alex', 'Google US English'],
       pilot: ['Xander', 'Arthur', 'Daniel', 'Google UK English Male'], ce: ['Fred', 'Ralph', 'Daniel'], vts: ['Moira', 'Serena', 'Karen', 'Google UK English Female'], t1: ['Ralph', 'Fred', 'Alex'], t2: ['Albert', 'Rocko', 'Fred', 'Alex'], pb: ['Alex', 'Tom', 'Aaron'], me: ['Alex'] }[id] || [];
     for (const n of pref) { const f = v.find((x) => x.name.includes(n)); if (f) return f; }
     return v[(id.charCodeAt(0) + id.length) % v.length];
@@ -119,8 +120,8 @@ const SPEECH = {
   },
   next() {
     const it = this.queue.shift();
-    if (!it) { this.busy = false; return; }
-    this.busy = true;
+    if (!it) { this.busy = false; this.cur = null; return; }
+    this.busy = true; this.cur = it.id;
     const who = CREW.info[it.id] || { short: it.id, color: '#ccc' };
     UI.sub(who.short, it.text, it.id, it.radio);
     const c = CREW.byId(it.id); if (c) c.talk(Math.max(2, it.text.length * 0.065));
@@ -132,7 +133,7 @@ const SPEECH = {
         const u = new SpeechSynthesisUtterance(it.text.replace(/°/g, ' degrees').replace(/\bkn\b/g, 'knots'));
         const v = this.voiceFor(it.id); if (v) u.voice = v;
         u.rate = { pilot: 1.08, vts: 1.1, t1: 1.12, t2: 1.12, ab: 1.05 }[it.id] || 1.0;
-        u.pitch = { o2: 1.02, vts: 1.05, ab: 0.9, t1: 0.8, t2: 0.75, ce: 0.8, co: 0.95 }[it.id] || 1.0;
+        u.pitch = { o2: 1.08, vts: 1.05, ab: 0.9, t1: 0.8, t2: 0.75, ce: 0.8, co: 0.95 }[it.id] || 1.0;
         u.volume = it.radio ? 0.8 : 1.0;
         let started = false;
         u.onstart = () => { started = true; };
@@ -146,6 +147,23 @@ const SPEECH = {
 };
 
 // ------------------------------------------------------------- crew member
+// Where people work on the bridge: node in BR.nodes, facing (0 = forward, π = aft) and body pose.
+const SPOTS = {
+  vhf: { node: 'conL', face: 0, pose: 'radio' },       // VHF handset, module 3
+  phone: { node: 'pilot', face: 0, pose: 'phone' },    // ECR telephone, module 4
+  radarL: { node: 'radarL', face: 0, pose: 'console' }, radarR: { node: 'radarR', face: 0, pose: 'console' },
+  ecdL: { node: 'ecdL', face: 0, pose: 'console' }, ecdR: { node: 'ecdR', face: 0, pose: 'console' },
+  steer: { node: 'apL', face: 0, pose: 'press' },      // steering mode / autopilot / nav lights
+  engine: { node: 'tele', face: 0, pose: 'press' },    // engine mode buttons & telegraphs
+  thr: { node: 'conR', face: 0, pose: 'press' },       // bow thruster panel
+  dock: { node: 'dockR', face: 0, pose: 'console' },
+  chart: { node: 'chart', face: Math.PI, pose: 'write' }, gmdss: { node: 'gmdss', face: Math.PI, pose: 'console' },
+  coffee: { node: 'coffee', face: Math.PI, pose: 'press' },
+  lookL: { node: 'sideL', face: -0.25, pose: 'binos' }, lookR: { node: 'sideR', face: 0.25, pose: 'binos' },
+  wingL: { node: 'wingL', face: -0.5, pose: 'binos' }, wingR: { node: 'wingR', face: 0.5, pose: 'binos' },
+  aft: { node: 'aftC', face: 0.3, pose: null },
+};
+
 class CrewMember {
   constructor(id, look, node) {
     this.id = id; this.look = look;
@@ -155,13 +173,18 @@ class CrewMember {
     const [x, z] = BR.nodes[node]; this.x = x; this.z = z; this.node = node;
     this.face = 0; this.targetFace = 0; this.path = []; this.state = 'idle';
     this.walkPh = Math.random() * 6; this.talkT = 0; this.present = true; this.idleT = Math.random() * 10;
+    this.task = null; this.ambientT = 25 + Math.random() * 40;
     this.group.position.set(x, 0, z);
     G.bridgeGroup.add(this.group);
+    // handset / walkie-talkie shown in the right hand while on the radio or phone
+    this.handset = new THREE.Mesh(new THREE.CapsuleGeometry(0.022, 0.12, 4, 8), new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.5 }));
+    this.handset.position.set(0.0, -0.3, -0.03); this.handset.rotation.x = 0.3; this.handset.visible = false;
+    this.arms[1].el.add(this.handset);
     // interaction proxy (capsule)
     const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.8, 8), new THREE.MeshBasicMaterial({ visible: false }));
     hit.position.y = 0.9; this.group.add(hit);
     const info = CREW.info[id];
-    interactive(hit, { name: info.name + ' — ' + info.role, hint: 'Click to give orders', click: () => UI.openCrewMenu(id) });
+    interactive(hit, { name: info.name + ' — ' + info.role, hint: 'Give orders (or Tab)', click: () => UI.openCrewMenu(id) });
     this.hit = hit;
   }
   goTo(node, cb) {
@@ -170,8 +193,33 @@ class CrewMember {
     this.node = node; this.onArrive = cb; this.state = 'walk';
   }
   nearestNode() { let b = null, bd = 1e9; for (const k in BR.nodes) { const [x, z] = BR.nodes[k]; const d = Math.hypot(x - this.x, z - this.z); if (d < bd) { bd = d; b = k; } } return b; }
-  leave(cb) { this.goTo('door', () => { this.present = false; this.group.visible = false; this.hit.visible = false; cb && cb(); }); }
-  enter(node, cb) { this.present = true; this.group.visible = true; const [x, z] = BR.nodes.door; this.x = x; this.z = z + 0.8; this.goTo(node, cb); }
+  leave(cb) { this.task = null; this.goTo('door', () => { this.present = false; this.group.visible = false; this.hit.visible = false; cb && cb(); }); }
+  enter(node, cb) { this.present = true; this.group.visible = true; this.hit.visible = true; const [x, z] = BR.nodes.door; this.x = x; this.z = z + 0.8; this.goTo(node, cb); }
+  // usual place & posture when nothing else to do
+  setHome(node, face = 0, pose = null) { this.home = { node, face, pose }; }
+  goHome(cb) {
+    const h = this.home; this.task = null;
+    const settle = () => { this.idleFace = h.face; this.pose = h.pose; cb && cb(); };
+    if (this.node === h.node && !this.path.length) { settle(); return; }
+    this.pose = null; this.goTo(h.node, settle);
+  }
+  // Walk to a work spot, do the job (action runs on arrival), hold the pose, then go home.
+  // key: CREW.ACTIONS entry (so a save can re-issue it); ambient tasks have no key and may be interrupted.
+  doTask(spot, o = {}) {
+    const sp = SPOTS[spot];
+    this.task = { spot, key: o.key || null, arg: o.arg, dur: o.dur ?? 6, started: false, ambient: !!o.ambient };
+    const t = this.task;
+    this.pose = null;
+    const arrive = () => {
+      if (this.task !== t) return;
+      t.started = true; t.left = t.dur;
+      this.idleFace = sp.face; this.pose = sp.pose;
+      if (t.key) CREW.ACTIONS[t.key](this, t.arg);
+      if (o.fn) o.fn(this);
+    };
+    if (this.node === sp.node && !this.path.length) arrive(); else this.goTo(sp.node, arrive);
+  }
+  busy() { return !!this.task || this.path.length > 0; }
   talk(sec) { this.talkT = sec; }
   update(dt) {
     if (!this.present) return;
@@ -184,9 +232,15 @@ class CrewMember {
       if (d < 0.08) { this.path.shift(); if (!this.path.length) { this.state = 'idle'; const cb = this.onArrive; this.onArrive = null; cb && cb(); } }
       else { const st = Math.min(d, sp * rdt); this.x += dx / d * st; this.z += dz / d * st; this.targetFace = Math.atan2(-dx, -dz); moving = true; }
     }
+    // task timing: keep the pose while they are still talking on the radio / phone
+    const t = this.task;
+    if (t && t.started) {
+      t.left -= rdt;
+      if (t.left <= 0 && !SPEECH.speaking(this.id)) this.goHome();
+    }
     if (!moving) {
-      // face forward (or the player if talking)
-      if (this.talkT > 0 && PLAYER.inBridge()) { const p = PLAYER.pos(); this.targetFace = Math.atan2(-(p.x - this.x), -(p.z - this.z)); }
+      // face forward (or the player if talking face to face)
+      if (this.talkT > 0 && PLAYER.inBridge() && !(t && t.started)) { const p = PLAYER.pos(); this.targetFace = Math.atan2(-(p.x - this.x), -(p.z - this.z)); }
       else this.targetFace = this.idleFace ?? 0;
     }
     let df = ((this.targetFace - this.face + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
@@ -194,12 +248,15 @@ class CrewMember {
     this.group.position.set(this.x, 0, this.z); this.group.rotation.y = this.face;
     // animation
     const L = this.legs, A = this.arms;
+    const onRadio = !moving && (this.pose === 'radio' || this.pose === 'phone');
+    this.handset.visible = onRadio;
     if (moving) {
       this.walkPh += rdt * 7.5;
       const s = Math.sin(this.walkPh);
       L[0].hp.rotation.x = s * 0.5; L[1].hp.rotation.x = -s * 0.5;
       L[0].kn.rotation.x = -Math.max(0, -Math.cos(this.walkPh)) * 0.7; L[1].kn.rotation.x = -Math.max(0, Math.cos(this.walkPh)) * 0.7;
       A[0].sh.rotation.x = s * 0.4; A[1].sh.rotation.x = -s * 0.4; A[0].el.rotation.x = 0.3; A[1].el.rotation.x = 0.3;
+      A[0].sh.rotation.z = -0.08; A[1].sh.rotation.z = 0.08;
       this.hips.position.y = 0.94 + Math.abs(Math.cos(this.walkPh)) * 0.03;
     } else {
       this.idleT += rdt;
@@ -207,15 +264,21 @@ class CrewMember {
       this.hips.position.y = 0.94;
       const breath = Math.sin(this.idleT * 1.6) * 0.012;
       this.chest.scale.set(1 + breath, 1, 1 + breath);
-      if (this.id === 'ab' && CREW.atHelm()) { A[0].sh.rotation.x = 1.0; A[1].sh.rotation.x = 1.0; A[0].el.rotation.x = 0.5; A[1].el.rotation.x = 0.5; A[0].sh.rotation.z = 0.3; A[1].sh.rotation.z = -0.3; }
-      else if (this.talkT > 0) { A[1].sh.rotation.x = 0.5 + Math.sin(this.idleT * 4) * 0.2; A[1].el.rotation.x = 0.8; A[0].sh.rotation.x *= 0.9; }
-      else if (this.pose === 'console') { A[0].sh.rotation.x = 0.55; A[1].sh.rotation.x = 0.55; A[0].el.rotation.x = 0.6; A[1].el.rotation.x = 0.6; }
-      else if (this.pose === 'binos') { A[0].sh.rotation.x = 1.4; A[1].sh.rotation.x = 1.4; A[0].el.rotation.x = 1.6; A[1].el.rotation.x = 1.6; A[0].sh.rotation.z = 0.5; A[1].sh.rotation.z = -0.5; }
-      else { A[0].sh.rotation.x *= 0.9; A[1].sh.rotation.x *= 0.9; A[0].el.rotation.x = 0.1; A[1].el.rotation.x = 0.1; A[0].sh.rotation.z = -0.08; A[1].sh.rotation.z = 0.08; }
+      const set = (a, sx, sz, el) => { a.sh.rotation.x += (sx - a.sh.rotation.x) * Math.min(1, rdt * 8); a.sh.rotation.z += (sz - a.sh.rotation.z) * Math.min(1, rdt * 8); a.el.rotation.x += (el - a.el.rotation.x) * Math.min(1, rdt * 8); };
+      const R = A[1], Lf = A[0], ph = this.idleT;
+      if (this.id === 'ab' && CREW.atHelm()) { set(Lf, 1.0, 0.3, 0.5); set(R, 1.0, -0.3, 0.5); }
+      else if (onRadio) { set(R, 1.35 + Math.sin(ph * 0.7) * 0.03, 0.22, 2.45); set(Lf, 0.1, -0.08, 0.15); }   // elbow forward, handset at the ear
+      else if (this.pose === 'press') { set(R, 0.95 + Math.max(0, Math.sin(ph * 5)) * 0.12, 0.08, 0.35 - Math.max(0, Math.sin(ph * 5)) * 0.1); set(Lf, 0.45, -0.05, 0.6); }
+      else if (this.pose === 'write') { set(R, 0.7, 0.05, 0.95 + Math.sin(ph * 9) * 0.05); set(Lf, 0.6, -0.05, 0.9); }
+      else if (this.talkT > 0) { set(R, 0.5 + Math.sin(ph * 4) * 0.2, 0.08, 0.8); set(Lf, 0.0, -0.08, 0.1); }
+      else if (this.pose === 'console') { set(Lf, 0.55, -0.05, 0.6); set(R, 0.55, 0.05, 0.6); }
+      else if (this.pose === 'binos') { set(Lf, 1.4, 0.5, 1.6); set(R, 1.4, -0.5, 1.6); }
+      else { set(Lf, 0.0, -0.08, 0.1); set(R, 0.0, 0.08, 0.1); }
     }
     // head: nod when talking, look around when idle
-    if (this.talkT > 0) { this.talkT -= rdt; this.head.rotation.x = Math.sin(this.idleT * 6) * 0.06; }
-    else { this.head.rotation.y = Math.sin(this.idleT * 0.23 + this.x) * 0.35; this.head.rotation.x = this.pose === 'console' ? -0.2 : 0; }
+    if (this.talkT > 0) { this.talkT -= rdt; this.head.rotation.x = Math.sin(this.idleT * 6) * 0.06 + (onRadio ? 0.05 : 0); this.head.rotation.y *= 0.9; }
+    else if (this.pose === 'binos') { this.head.rotation.y = Math.sin(this.idleT * 0.15) * 0.25; this.head.rotation.x = 0; }
+    else { this.head.rotation.y = Math.sin(this.idleT * 0.23 + this.x) * (this.pose ? 0.15 : 0.35); this.head.rotation.x = this.pose === 'console' || this.pose === 'press' || this.pose === 'write' ? -0.25 : 0; }
   }
 }
 
@@ -223,7 +286,7 @@ class CrewMember {
 const CREW = {
   info: {
     co: { name: 'Anders Nielsen', short: 'C/O Nielsen', role: 'Chief Officer', color: '#7fd3ee' },
-    o2: { name: 'Mateo Santos', short: '2/O Santos', role: 'Second Officer (navigator)', color: '#f4a8d4' },
+    o2: { name: 'Sofia Santos', short: '2/O Santos', role: 'Second Officer (navigator)', color: '#f4a8d4' },
     o3: { name: 'Rahul Mehta', short: '3/O Mehta', role: 'Third Officer', color: '#b7e38f' },
     ab: { name: 'Jomar Reyes', short: 'AB Reyes', role: 'Able Seaman — helmsman', color: '#ffc36b' },
     pilot: { name: 'Hendrik de Vries', short: 'Pilot', role: 'Westerhaven harbour pilot', color: '#ffe066' },
@@ -240,9 +303,9 @@ const CREW = {
   helmState: { order: null, t: 0 },
   init() {
     SPEECH.init();
-    const m = (id, look, node, face = 0, pose) => { const c = new CrewMember(id, look, node); c.idleFace = face; c.pose = pose; this.members.push(c); return c; };
+    const m = (id, look, node, face = 0, pose) => { const c = new CrewMember(id, look, node); c.idleFace = face; c.pose = pose; c.setHome(node, face, pose); this.members.push(c); return c; };
     m('co', { shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 3, skin: 0xe2b99a, hair: 0xb89a6a, radio: true, tone: '#fff4ee', shave: false, beard: '120,88,52', brow: '#b08858', hairStyle: 'short', hairCol: '#8a6a44', iris: '#4a7aa8', seed: 11 }, 'ecdL', 0, 'console');
-    m('o2', { shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 2, skin: 0xa8765a, hair: 0x1b120c, radio: true, tone: '#cf9a74', shave: true, brow: '#553020', hairStyle: 'side', hairCol: '#16100c', iris: '#3a2616', seed: 12, headScale: 0.97 }, 'ecdR', 0, 'console');
+    m('o2', { female: true, shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 2, skin: 0xa8765a, hair: 0x1b120c, radio: true, tone: '#d8a47e', shave: true, lips: 'rgba(150,60,70,0.35)', brow: '#553020', hairStyle: 'bun', hairCol: '#1a120c', iris: '#3a2616', seed: 12, headScale: 0.93 }, 'ecdR', 0, 'console');
     m('o3', { shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 1, skin: 0x9a6a4a, hair: 0x120c08, glasses: true, tone: '#b27a52', shave: 'light', brow: '#3a2010', hairStyle: 'short', hairCol: '#120c08', iris: '#2a1a0e', seed: 13 }, 'tele', 0, 'console');
     m('ab', { coverall: true, pants: 0xe0661c, shirt: 0xe0661c, skin: 0xb07a55, hair: 0x120c08, tone: '#c98f64', shave: true, brow: '#3a2010', hairStyle: 'crop', hairCol: '#0e0a08', iris: '#2e1d10', seed: 14, headScale: 0.98 }, 'aftC', 0.3);
     const pl = m('pilot', { shirt: 0x1d2a3a, pants: 0x2a2a2a, vest: 0xf07a14, skin: 0xe8c0a0, hair: 0x8a8a8a, glasses: true, tone: '#fff0ea', shave: 'light', brow: '#8a8078', hairStyle: 'receding', hairCol: '#9a968e', iris: '#5a7890', seed: 15, headScale: 1.02 }, 'door', 0);
@@ -251,13 +314,62 @@ const CREW = {
   },
   byId(id) { return this.members.find((c) => c.id === id); },
   atHelm() { const ab = this.byId('ab'); return ab && ab.present && ab.node === 'helm' && ab.state === 'idle'; },
-  update(dt) { this.members.forEach((c) => c.update(dt)); this.updateHelmsman(dt); this.updateStations(dt); },
+  update(dt) { this.members.forEach((c) => c.update(dt)); this.updateHelmsman(dt); this.updateStations(dt); this.updateAmbient(dt); },
+
+  // --------------------------------------------------- tasks at the consoles
+  // Named, serialisable jobs: a crew member walks to a spot and then does this on arrival.
+  ACTIONS: {
+    vts: () => { G.vhfCh = 11; SCN.vtsCall('o2'); },
+    tugs: () => { G.vhfCh = 12; SCN.tugCall('o2'); },
+    standby: () => { CREW.say('o3', 'Ringing stand-by engine, Captain.'); requestEngineMode('STANDBY'); },
+    thrusters: () => { CREW.say('o3', 'Starting bow thrusters.'); startThrusters(); },
+    navlights: () => { G.navLights = !G.navLights; CREW.say('o3', 'Navigation lights ' + (G.navLights ? 'on' : 'off') + '.'); if (G.navLights && ENV.night) SCN.bonus('Nav lights at night', 25, 'navl'); },
+    position: () => SCN.reportPosition(),
+    traffic: () => SCN.reportTraffic(),
+    checklist: () => SCN.checklistReport('co'),
+    coffee: (c) => CREW.say(c.id, pick(['Coffee is on, Captain. Black, as always.', 'Good idea, Captain — long arrival ahead.', 'The pilot will want one too, I am sure.'])),
+  },
+  // order a crew member to a spot; falls back to doing it at once if they are away
+  job(id, spot, key, dur = 6) {
+    const c = this.byId(id);
+    if (!c || !c.present) { this.ACTIONS[key](c); return; }
+    c.doTask(spot, { key, dur });
+  },
+  // idle routines: glance at the radar, write up the log, look out with binoculars, fetch coffee
+  AMBIENT: {
+    co: ['lookL', 'radarL', 'chart', 'wingL', 'ecdL', 'coffee'],
+    o2: ['radarR', 'dock', 'gmdss', 'chart', 'lookR'],
+    o3: ['thr', 'lookR', 'chart', 'steer', 'engine'],
+    ab: ['lookR', 'lookL', 'coffee'],
+    pilot: ['lookL', 'lookR', 'radarL', 'ecdL'],
+  },
+  updateAmbient(dt) {
+    if (!dt) return;
+    const taken = new Set(this.members.filter((c) => c.present).map((c) => c.node));
+    for (const c of this.members) {
+      if (!c.present || !c.home || c.busy()) continue;
+      if (c.id === 'ab' && c.home.node === 'helm') continue;           // the helmsman never leaves the wheel
+      c.ambientT -= dt * Math.min(G.timeScale, 4);
+      if (c.ambientT > 0) continue;
+      c.ambientT = 45 + Math.random() * 70;
+      const opts = (this.AMBIENT[c.id] || []).filter((k) => !taken.has(SPOTS[k].node) && SPOTS[k].node !== c.home.node);
+      if (!opts.length) continue;
+      const spot = pick(opts); taken.add(SPOTS[spot].node);
+      c.doTask(spot, { ambient: true, dur: 8 + Math.random() * 14 });
+    }
+  },
   say(id, text, radio) { SPEECH.say(id, text, radio); },
   findPath(a, b) {
     if (a === b) return [b];
+    // shortest walking distance (Dijkstra; the graph has ~30 nodes)
     const adj = {}; for (const [p, q] of BR.edges) { (adj[p] = adj[p] || []).push(q); (adj[q] = adj[q] || []).push(p); }
-    const prev = { [a]: null }, qu = [a];
-    while (qu.length) { const n = qu.shift(); if (n === b) break; for (const k of adj[n] || []) if (!(k in prev)) { prev[k] = n; qu.push(k); } }
+    const len = (p, q) => Math.hypot(BR.nodes[p][0] - BR.nodes[q][0], BR.nodes[p][1] - BR.nodes[q][1]);
+    const dist = { [a]: 0 }, prev = { [a]: null }, open = new Set([a]);
+    while (open.size) {
+      let n = null; for (const k of open) if (n === null || dist[k] < dist[n]) n = k;
+      open.delete(n); if (n === b) break;
+      for (const k of adj[n] || []) { const nd = dist[n] + len(n, k); if (!(k in dist) || nd < dist[k]) { dist[k] = nd; prev[k] = n; open.add(k); } }
+    }
     if (!(b in prev)) return [b];
     const out = []; for (let n = b; n; n = prev[n]) out.unshift(n); return out;
   },
@@ -322,29 +434,29 @@ const CREW = {
       L.push({ k: 'ab_course', t: 'Steer a course…', d: 'AB steers and steadies on the ordered heading', input: true, ok: this.atHelm(), fn: (v) => { G.abCourse = wrap360(v); this._steadyTold = false; this.say('ab', 'Steer ' + pad(G.abCourse) + ', Captain.'); } });
       L.push({ k: 'ab_steady', t: 'Steady as she goes', d: 'Hold the present heading', ok: this.atHelm(), fn: () => { G.abCourse = Math.round(s.psi / DEG); this._steadyTold = false; this.say('ab', 'Steady as she goes — steady on ' + pad(G.abCourse) + '.'); } });
       for (const [lab, d] of [['Port ten', -10], ['Starboard ten', 10], ['Port twenty', -20], ['Starboard twenty', 20], ['Hard-a-port', -35], ['Hard-a-starboard', 35], ['Midships', 0]]) L.push({ k: 'ab_h' + d, t: lab, d: 'Helm order', ok: this.atHelm(), fn: () => helmOrder(d) });
-      L.push({ k: 'ab_auto', t: 'Back to autopilot', d: 'Engage autopilot on the present heading', ok: G.steering !== 'AUTO', fn: () => { setSteering('AUTO'); this.say('ab', 'Autopilot engaged, heading ' + pad(G.apHeading) + '.'); const ab = this.byId('ab'); ab.goTo('aftC'); ab.pose = null; } });
+      L.push({ k: 'ab_auto', t: 'Back to autopilot', d: 'Engage autopilot on the present heading', ok: G.steering !== 'AUTO', fn: () => { setSteering('AUTO'); this.say('ab', 'Autopilot engaged, heading ' + pad(G.apHeading) + '.'); const ab = this.byId('ab'); ab.setHome('aftC', 0.3, null); ab.goHome(); } });
     }
     if (id === 'co') {
       L.push({ k: 'co_fwd', t: 'Man the forward mooring station', d: 'Go forward with the bosun, prepare lines, stand by both anchors', ok: !F.fwdSent, fn: () => this.sendStation('co', 'fwd') });
       L.push({ k: 'co_lines', t: 'Forward: send head lines, breasts & spring ashore', d: 'Only when alongside', ok: F.fwdStation && !F.linesFwd, fn: () => SCN.sendLines('fwd') });
       L.push({ k: 'co_dist', t: 'Report distance forward', d: 'Bow distance and closing speed', ok: F.fwdStation, fn: () => SCN.reportDistance('fwd') });
-      L.push({ k: 'co_check', t: 'Arrival checklist status', d: 'Summary of pending items', ok: this.byId('co').present, fn: () => SCN.checklistReport('co') });
+      L.push({ k: 'co_check', t: 'Arrival checklist status', d: 'Summary of pending items', ok: this.byId('co').present, fn: () => this.job('co', 'chart', 'checklist') });
     }
     if (id === 'o2') {
-      L.push({ k: 'o2_vts', t: 'Call VTS on channel 11', d: 'Report arrival to Westerhaven Traffic', ok: !F.vtsReported, fn: () => { G.vhfCh = 11; SCN.vtsCall('o2'); } });
-      L.push({ k: 'o2_pos', t: 'Report position & next waypoint', d: 'Cross-track error, distance, next course', ok: this.byId('o2').present, fn: () => SCN.reportPosition() });
-      L.push({ k: 'o2_traffic', t: 'Report traffic', d: 'Radar / AIS targets with CPA', ok: this.byId('o2').present, fn: () => SCN.reportTraffic() });
-      L.push({ k: 'o2_tugs', t: 'Order tugs on channel 12', d: 'Two tugs to meet us at the breakwater', ok: !TUGS.ordered, fn: () => { G.vhfCh = 12; SCN.tugCall('o2'); } });
+      L.push({ k: 'o2_vts', t: 'Call VTS on channel 11', d: 'Report arrival to Westerhaven Traffic', ok: !F.vtsReported, fn: () => this.job('o2', 'vhf', 'vts', 10) });
+      L.push({ k: 'o2_pos', t: 'Report position & next waypoint', d: 'Cross-track error, distance, next course', ok: this.byId('o2').present, fn: () => this.job('o2', 'ecdL', 'position') });
+      L.push({ k: 'o2_traffic', t: 'Report traffic', d: 'Radar / AIS targets with CPA', ok: this.byId('o2').present, fn: () => this.job('o2', 'radarR', 'traffic') });
+      L.push({ k: 'o2_tugs', t: 'Order tugs on channel 12', d: 'Two tugs to meet us at the breakwater', ok: !TUGS.ordered, fn: () => this.job('o2', 'vhf', 'tugs', 10) });
       L.push({ k: 'o2_aft', t: 'Man the aft mooring station', d: 'Go aft, prepare stern lines and springs', ok: !F.aftSent, fn: () => this.sendStation('o2', 'aft') });
       L.push({ k: 'o2_lines', t: 'Aft: send stern lines, breasts & spring ashore', d: 'Only when alongside', ok: F.aftStation && !F.linesAft, fn: () => SCN.sendLines('aft') });
       L.push({ k: 'o2_dist', t: 'Report distance aft', d: 'Stern distance and closing speed', ok: F.aftStation, fn: () => SCN.reportDistance('aft') });
     }
     if (id === 'o3') {
-      L.push({ k: 'o3_sb', t: 'Ring stand-by engine', d: 'Tell the engine room to change to manoeuvring mode', ok: s.engineMode === 'SEA' && !G.pendingMode, fn: () => { this.say('o3', 'Ringing stand-by engine, Captain.'); requestEngineMode('STANDBY'); } });
+      L.push({ k: 'o3_sb', t: 'Ring stand-by engine', d: 'Tell the engine room to change to manoeuvring mode', ok: s.engineMode === 'SEA' && !G.pendingMode, fn: () => this.job('o3', 'phone', 'standby', 8) });
       L.push({ k: 'o3_ladder', t: 'Rig the pilot ladder — ' + (F.leeSide || 'lee') + ' side', d: 'Combination ladder, 2 m above water, with lifebuoy & light', ok: !F.ladder && !F.ladderRigging, fn: () => SCN.rigLadder() });
-      L.push({ k: 'o3_bt', t: 'Start the bow thrusters', d: 'Needs ~20 s and a second generator', ok: !G.thrReady && !G.thrStarting, fn: () => { this.say('o3', 'Starting bow thrusters.'); startThrusters(); } });
+      L.push({ k: 'o3_bt', t: 'Start the bow thrusters', d: 'Needs ~20 s and a second generator', ok: !G.thrReady && !G.thrStarting, fn: () => this.job('o3', 'thr', 'thrusters') });
       L.push({ k: 'o3_h', t: 'Hoist flag "H" — pilot on board', d: 'International code flag H', ok: F.pilotOnBridge && !F.hflag, fn: () => { F.hflag = true; this.say('o3', 'Hotel flag hoisted, Captain.'); SCN.bonus('Flag H hoisted', 25); } });
-      L.push({ k: 'o3_lights', t: (G.navLights ? 'Switch off' : 'Switch on') + ' navigation lights', d: 'Sidelights, masthead, stern light', ok: true, fn: () => { G.navLights = !G.navLights; this.say('o3', 'Navigation lights ' + (G.navLights ? 'on' : 'off') + '.'); if (G.navLights && ENV.night) SCN.bonus('Nav lights at night', 25, 'navl'); } });
+      L.push({ k: 'o3_lights', t: (G.navLights ? 'Switch off' : 'Switch on') + ' navigation lights', d: 'Sidelights, masthead, stern light', ok: true, fn: () => this.job('o3', 'steer', 'navlights', 4) });
       L.push({ k: 'o3_book', t: 'Show me the bell book', d: 'Engine movement log', ok: true, fn: () => UI.showBellBook() });
     }
     if (id === 'pilot') {
@@ -359,6 +471,7 @@ const CREW = {
   abTakeWheel() {
     const ab = this.byId('ab');
     this.say('ab', 'Going to the wheel, Captain.');
+    ab.task = null; ab.setHome('helm', 0, null);
     ab.goTo('helm', () => {
       ab.idleFace = 0; ab.pose = null;
       if (G.steering !== 'HAND') setSteering('HAND');
@@ -371,12 +484,7 @@ const CREW = {
     const c = this.byId(id); const F = G.flags;
     F[st + 'Sent'] = true;
     this.say(id, st === 'fwd' ? 'Going forward, Captain. I\'ll call you on the radio when the station is ready.' : 'Going aft, Captain. Will report on channel 72.');
-    c.leave(() => {
-      SCN.later(st === 'fwd' ? 150 : 170, () => {
-        F[st + 'Station'] = true; this.showStation(st, true);
-        this.say(st, st === 'fwd' ? 'Bridge, forward station: manned and ready. Both anchors cleared away, lines ready port and starboard.' : 'Bridge, aft: aft station manned, lines ready, propellers clear.', true);
-        SCN.flag(st + 'Station');
-      });
-    });
+    c.leave();
+    SCN.later(st === 'fwd' ? 160 : 180, 'stationReady', st);
   },
 };

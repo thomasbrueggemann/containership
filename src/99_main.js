@@ -53,9 +53,11 @@ function updateShipVisual(dt) {
   const s = G.ship, g = G.shipGroup;
   const swell = CFG.wind === 'fresh' ? 2.2 : CFG.wind === 'moderate' ? 1.3 : 0.6;
   const t = G.realT;
-  const roll = clamp(s.u * s.r * 1.1, -0.045, 0.045) + Math.sin(t * 2 * Math.PI / 13.5) * 0.0022 * swell;
-  const pitch = Math.sin(t * 2 * Math.PI / 9.2 + 1) * 0.0007 * swell;
-  g.position.set(s.x, -s.squat * 0.6 + Math.sin(t * 0.6) * 0.04 * swell, s.z);
+  // gentle swell response (much reduced inside the breakwaters)
+  const sea = swell * (s.x > -2600 ? 0.35 : 1);
+  const roll = clamp(s.u * s.r * 1.1, -0.045, 0.045) + (Math.sin(t * 2 * Math.PI / 13.5) + 0.35 * Math.sin(t * 2 * Math.PI / 21 + 2)) * 0.0045 * sea;
+  const pitch = (Math.sin(t * 2 * Math.PI / 9.2 + 1) + 0.4 * Math.sin(t * 2 * Math.PI / 14.3)) * 0.0014 * sea;
+  g.position.set(s.x, -s.squat * 0.6 + (Math.sin(t * 2 * Math.PI / 10.5) * 0.12 + Math.sin(t * 0.6) * 0.05) * sea, s.z);
   g.rotation.set(pitch, -s.psi, roll, 'YXZ');
   if (g.userData.flag) g.userData.flag.rotation.y = Math.PI / 2 + Math.sin(t * 3) * 0.2;
   // wake & foam
@@ -104,7 +106,9 @@ function simTick(sdt) {
 }
 function loop() {
   requestAnimationFrame(loop);
-  const rdt = Math.min(clock.getDelta(), 0.1);
+  frame(Math.min(clock.getDelta(), 0.1));
+}
+function frame(rdt) {
   G.realT += rdt; _frame++;
   if (!G.paused) simTick(rdt * G.timeScale);
   CREW.update(G.paused ? 0 : rdt);
@@ -115,6 +119,7 @@ function loop() {
   updateWasBAS();
   AUDIO.update(rdt);
   UI.update(rdt);
+  SAVE.update(rdt);
   updateEnvFrame();
   renderReflection();
   renderer.render(scene, camera);
@@ -161,6 +166,7 @@ async function startGame() {
     await HEADS.load();
     CREW.init(); TRAFFIC.init(); PILOTBOAT.init(); TUGS.init();
     PLAYER.init(); SCN.init();
+    if (SAVE.pending) { await progress(0.99, 'Restoring your watch'); SAVE.apply(SAVE.pending); SAVE.pending = null; }
     await progress(1, 'Taking over the watch');
     renderer.compile(scene, camera);
   } catch (e) {
@@ -176,6 +182,8 @@ async function startGame() {
 }
 
 UI.init();
-window.__dbg = { G, PLAYER, SCN, CREW, TUGS, TRAFFIC, PILOTBOAT, BR, get camera() { return camera; }, get scene() { return scene; }, get renderer() { return renderer; }, teleStep, setSteering, requestEngineMode, startThrusters, berthInfo,
+SAVE.init();
+window.__dbg = { G, PLAYER, SCN, CREW, HEADS, SPOTS, SAVE, TUGS, TRAFFIC, PILOTBOAT, BR, get camera() { return camera; }, get scene() { return scene; }, get renderer() { return renderer; }, teleStep, setSteering, requestEngineMode, startThrusters, berthInfo,
+  frame(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   run(sec, dt = 0.25) { for (let t = 0; t < sec; t += dt) { simTick(dt); CREW.update(dt); } return { simT: G.simT, x: G.ship.x, z: G.ship.z, sog: G.ship.sog / KN, step: SCN.cur }; } };
 if (/autostart/.test(location.search)) { const q = new URLSearchParams(location.search); for (const k of Object.keys(CFG)) if (q.get(k)) CFG[k] = q.get(k); startGame(); }

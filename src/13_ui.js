@@ -4,9 +4,9 @@
 const UI = {
   zoomKey: null, crewSel: null, toasts: [], hudT: 0,
   KEYS: [
-    ['h', 'On the bridge'], ['W A S D', 'Walk  (Shift = hurry)'], ['Mouse', 'Look (click the view to capture the mouse)'], ['Click / F', 'Use the control under the crosshair'], ['Right mouse / B', 'Binoculars'], ['1 2 3 4', 'Jump: centre console · port wing · stbd wing · chart table'], ['V', 'External camera (drag to orbit, wheel to zoom)'],
+    ['h', 'On the bridge'], ['W A S D', 'Walk  (Shift = hurry)'], ['Mouse', 'Look around (click the view once to capture the mouse)'], ['Click', 'Use the button / lever under the crosshair'], ['Space', 'Full-screen view of the screen / chart under the crosshair (Space again closes, wheel or − + changes range)'], ['Right mouse / B', 'Binoculars'], ['1 2 3 4', 'Jump: centre console · port wing · stbd wing · chart table'], ['V', 'External camera (drag to orbit, wheel to zoom)'],
     ['h', 'Ship handling'], ['↑ / ↓', 'Engine telegraph (both engines) one notch'], ['← / →', 'Helm order 5° (Shift 10°) — or autopilot ±1° in AUTO'], ['X', 'Midships'], ['Q / E', 'Bow thrusters to port / starboard (25 %)'], ['Z', 'Thrusters zero'], ['T', 'Tug orders panel'], ['H (hold)', 'Ship\'s whistle'],
-    ['h', 'Command'], ['Tab', 'Crew orders — delegate to your officers'], ['M R C G', 'Full-screen ECDIS · radar · conning · docking'], ['[ / ]', 'Time compression ×1 … ×8'], ['P', 'Pause'], ['J / K', 'Hide mission panel / status bar'],
+    ['h', 'Command'], ['Tab', 'Crew orders — delegate to your officers'], ['M R C G', 'Full-screen ECDIS · radar · conning · docking'], ['[ / ]', 'Time compression ×1 … ×8'], ['P', 'Pause'], ['Ctrl / ⌘ + S', 'Save the game (also autosaves every 90 s)'], ['J / K', 'Hide mission panel / status bar'],
   ],
   init() {
     // start screen option segments
@@ -21,6 +21,9 @@ const UI = {
     $('btnStart').addEventListener('click', () => startGame());
     $('btnResume').addEventListener('click', () => this.togglePause(false));
     $('btnRestart').addEventListener('click', () => location.reload());
+    $('btnSave').addEventListener('click', () => { SAVE.save(false); });
+    $('btnSaveQuit').addEventListener('click', () => { if (SAVE.save(false)) location.reload(); });
+    $('btnSaveTop').addEventListener('click', () => SAVE.save(false));
     $('btnPauseHelp').addEventListener('click', () => this.showHelp());
     $('btnCrew').addEventListener('click', () => this.openCrewMenu());
     $('btnHelp').addEventListener('click', () => this.showHelp());
@@ -35,6 +38,7 @@ const UI = {
   showHUD() { ['crosshair', 'mission', 'topright', 'statusbar', 'lookhint'].forEach((k) => $(k).classList.remove('hidden')); if (CFG.assist === 'off') $('statusbar').classList.add('hidden'); },
   lockChanged(locked) { $('lookhint').classList.toggle('hidden', locked || PLAYER.lockFailed || G.mode !== 'bridge'); if (PLAYER.lockFailed) $('lookhint').innerHTML = 'Drag to look around · click controls directly'; },
   modeChanged() { $('crosshair').classList.toggle('hidden', G.mode !== 'bridge'); this.lockChanged(PLAYER.locked); if (G.mode === 'orbit') this.toast('External view — drag to orbit, wheel to zoom, V to return', 'info'); },
+  zoomOpen() { return !$('zoomView').classList.contains('hidden'); },
   modalOpen() { return !$('crewMenu').classList.contains('hidden') || !$('zoomView').classList.contains('hidden') || !$('help').classList.contains('hidden') || !$('pause').classList.contains('hidden') || !$('debrief').classList.contains('hidden') || !$('start').classList.contains('hidden'); },
   releaseMouse() { if (document.pointerLockElement) document.exitPointerLock(); },
   handleKey(e) {
@@ -54,6 +58,7 @@ const UI = {
   togglePause(on) {
     const p = on === undefined ? $('pause').classList.contains('hidden') : on;
     $('pause').classList.toggle('hidden', !p); G.paused = p; if (p) this.releaseMouse();
+    else if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); // Space must not re-press a menu button
   },
   showHelp() {
     this.releaseMouse();
@@ -89,7 +94,8 @@ const UI = {
     const tt = $('tooltip');
     $('crosshair').classList.toggle('hot', !!ia);
     if (!ia) { tt.classList.add('hidden'); return; }
-    tt.innerHTML = `<b>${ia.name}</b>${ia.hint ? '<span>' + ia.hint + '</span>' : ''}`;
+    const act = ia.zoom ? '<kbd>Space</kbd> full screen' : ia.click || ia.down ? 'Click to use' : '';
+    tt.innerHTML = `<b>${ia.name}</b>${ia.hint ? '<span>' + ia.hint + '</span>' : ''}${act ? '<span class="act">' + act + '</span>' : ''}`;
     tt.classList.remove('hidden');
   },
   binoOverlay(on) {
@@ -139,23 +145,34 @@ const UI = {
     if (!$('zoomView').classList.contains('hidden') && this.zoomKey === 'bellbook') this.showBellBook(true);
   },
   // --------------------------------------------------------- instrument zoom
+  // Full-screen instrument view. The mouse is NOT released: Space / click / Esc closes it again,
+  // the wheel or − / + keys change the range, so the player never has to chase a cursor.
   zoomDisplay(key) {
+    if (key === 'bellbook') return this.showBellBook();
     const d = DISPLAYS[key]; if (!d) return;
-    this.releaseMouse();
     this.closeZoom();
-    this.zoomKey = key;
+    this.zoomKey = key; this.zoomLocked = PLAYER.locked; this.zoomRangeFn = null;
     $('zvTitle').textContent = d.title;
     const body = $('zvBody'); body.innerHTML = ''; body.appendChild(d.canvas);
     const ctl = $('zvCtl'); ctl.innerHTML = '';
     const btn = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.onclick = fn; ctl.appendChild(b); };
-    if (key.startsWith('radar')) { const i = key === 'radar1' ? 0 : 1; btn('Range −', () => { G.radarRange[i] = RADAR_RANGES[Math.max(0, RADAR_RANGES.indexOf(G.radarRange[i]) - 1)]; }); btn('Range +', () => { G.radarRange[i] = RADAR_RANGES[Math.min(RADAR_RANGES.length - 1, RADAR_RANGES.indexOf(G.radarRange[i]) + 1)]; }); }
-    if (key.startsWith('ecdis')) { const k = key === 'ecdis1' ? 'ecdisRange' : 'ecdisRange2'; btn('Zoom in', () => { G[k] = ECDIS_RANGES[Math.max(0, ECDIS_RANGES.indexOf(G[k]) - 1)]; d.force = true; }); btn('Zoom out', () => { G[k] = ECDIS_RANGES[Math.min(ECDIS_RANGES.length - 1, ECDIS_RANGES.indexOf(G[k]) + 1)]; d.force = true; }); }
-    btn('Close (Esc)', () => this.closeZoom());
+    if (key.startsWith('radar')) {
+      const i = key === 'radar1' ? 0 : 1;
+      this.zoomRangeFn = (dir) => { G.radarRange[i] = RADAR_RANGES[clamp(RADAR_RANGES.indexOf(G.radarRange[i]) + dir, 0, RADAR_RANGES.length - 1)]; };
+      btn('Range − [−]', () => this.zoomRangeFn(-1)); btn('Range + [+]', () => this.zoomRangeFn(1));
+    }
+    if (key.startsWith('ecdis')) {
+      const k = key === 'ecdis1' ? 'ecdisRange' : 'ecdisRange2';
+      this.zoomRangeFn = (dir) => { G[k] = ECDIS_RANGES[clamp(ECDIS_RANGES.indexOf(G[k]) + dir, 0, ECDIS_RANGES.length - 1)]; d.force = true; };
+      btn('Zoom in [−]', () => this.zoomRangeFn(-1)); btn('Zoom out [+]', () => this.zoomRangeFn(1));
+    }
+    btn('Close (Space)', () => this.closeZoom());
     $('zoomView').classList.remove('hidden');
   },
-  closeZoom() { $('zoomView').classList.add('hidden'); $('zvBody').innerHTML = ''; this.zoomKey = null; },
+  closeZoom() { $('zoomView').classList.add('hidden'); $('zvBody').innerHTML = ''; this.zoomKey = null; this.zoomRangeFn = null; },
+  zoomRange(dir) { if (this.zoomRangeFn) { this.zoomRangeFn(dir); AUDIO.click(); } },
   showBellBook(refresh) {
-    if (!refresh) { this.releaseMouse(); this.closeZoom(); this.zoomKey = 'bellbook'; $('zvTitle').textContent = 'Bell book — engine movements'; $('zvCtl').innerHTML = ''; const b = document.createElement('button'); b.textContent = 'Close (Esc)'; b.onclick = () => this.closeZoom(); $('zvCtl').appendChild(b); $('zoomView').classList.remove('hidden'); }
+    if (!refresh) { this.closeZoom(); this.zoomKey = 'bellbook'; this.zoomLocked = PLAYER.locked; $('zvTitle').textContent = 'Bell book — engine movements'; $('zvCtl').innerHTML = ''; const b = document.createElement('button'); b.textContent = 'Close (Space)'; b.onclick = () => this.closeZoom(); $('zvCtl').appendChild(b); $('zoomView').classList.remove('hidden'); }
     const rows = G.bellBook.slice(0, 40).map((e) => { const t = (START_TIME[CFG.tod] + e.t) % 86400; return `<tr><td style="font-family:ui-monospace,monospace;padding:4px 14px;color:#8ea4b3">${String(Math.floor(t / 3600)).padStart(2, '0')}:${String(Math.floor(t / 60) % 60).padStart(2, '0')}:${String(Math.floor(t) % 60).padStart(2, '0')}</td><td style="padding:4px 14px">${e.txt}</td></tr>`; }).join('');
     $('zvBody').innerHTML = `<div style="background:#f3efe2;color:#222;border-radius:8px;padding:18px 22px;max-height:100%;overflow:auto;min-width:420px;font-size:15px"><div style="font-weight:800;margin-bottom:8px">MAJESTIC MAERSK — Bell book</div><table>${rows || '<tr><td>No engine movements yet.</td></tr>'}</table></div>`;
   },

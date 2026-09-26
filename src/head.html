@@ -38,6 +38,8 @@ kbd { display: inline-block; min-width: 1.5em; padding: 0 .4em; border: 1px soli
   font-size: 12.5px; line-height: 1.45; text-align: center; backdrop-filter: blur(6px); }
 #tooltip b { color: var(--accent-2); font-weight: 600; display: block; font-size: 13px; }
 #tooltip span { color: var(--muted); }
+#tooltip span.act { display: block; margin-top: 3px; color: var(--accent-2); font-size: 11.5px; }
+#tooltip kbd { font-size: 10px; }
 
 .glass { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); backdrop-filter: blur(8px);
   box-shadow: 0 8px 30px rgba(0,0,0,.35); }
@@ -162,6 +164,18 @@ kbd { display: inline-block; min-width: 1.5em; padding: 0 .4em; border: 1px soli
 .specs b { color: var(--text); font-weight: 600; }
 .foot { margin-top: 18px; font-size: 11px; color: #5f7684; }
 #loading .card { text-align: center; width: 420px; }
+#saveList { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+#saveList .save { position: relative; }
+#saveList .load { width: 100%; text-align: left; background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 9px; color: var(--text);
+  padding: 10px 34px 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; }
+#saveList .load:hover { background: rgba(66,176,213,.14); border-color: var(--accent); }
+#saveList .st { font: 600 10px ui-monospace, Menlo, monospace; letter-spacing: .12em; color: var(--accent); }
+#saveList .tt { font-size: 14px; font-weight: 650; }
+#saveList .mt, #saveList .dt { font-size: 11.5px; color: var(--muted); }
+#saveList .pb { height: 3px; border-radius: 2px; background: rgba(255,255,255,.08); overflow: hidden; margin: 4px 0 2px; }
+#saveList .pb i { display: block; height: 100%; background: var(--accent); }
+#saveList .del { position: absolute; right: 6px; top: 6px; background: none; border: 0; color: var(--muted); font-size: 18px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+#saveList .del:hover { color: var(--bad); background: rgba(255,90,79,.1); }
 .bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; margin-top: 14px; }
 .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
 #debrief table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; }
@@ -194,11 +208,12 @@ kbd { display: inline-block; min-width: 1.5em; padding: 0 .4em; border: 1px soli
 <div id="topright" class="glass hidden">
   <span id="clock">00:00</span>
   <span class="tc" id="tcButtons"></span>
+  <button id="btnSaveTop" title="Save game (Ctrl/⌘ + S)">Save</button>
   <button id="btnCrew" title="Crew orders (Tab)">Crew ⇥</button>
   <button id="btnHelp" title="Help (F1)">?</button>
 </div>
 
-<div id="lookhint" class="glass hidden">Click the view to take control · <kbd>Esc</kbd> releases the mouse</div>
+<div id="lookhint" class="glass hidden">Click the view to take control · <kbd>Space</kbd> full-screen a display · <kbd>Esc</kbd> releases the mouse</div>
 <div id="statusbar" class="glass hidden"></div>
 <div id="subs"></div>
 <div id="alerts"></div>
@@ -218,7 +233,7 @@ kbd { display: inline-block; min-width: 1.5em; padding: 0 .4em; border: 1px soli
   <div style="font-size:22px;font-weight:700;margin-bottom:6px">Paused</div>
   <div style="color:var(--muted);font-size:13px;margin-bottom:18px">The ship keeps her way when you resume.</div>
   <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-    <button class="go" id="btnResume">Resume</button><button class="go sec" id="btnPauseHelp">Controls</button><button class="go sec" id="btnRestart">Restart</button></div></div></div>
+    <button class="go" id="btnResume">Resume</button><button class="go sec" id="btnSave">Save game</button><button class="go sec" id="btnSaveQuit">Save &amp; quit to menu</button><button class="go sec" id="btnPauseHelp">Controls</button><button class="go sec" id="btnRestart">Restart</button></div></div></div>
 <div id="debrief" class="overlay hidden"><div class="card glass" id="debriefCard" style="width:min(620px,94vw)"></div></div>
 
 <div id="start" class="overlay">
@@ -228,6 +243,11 @@ kbd { display: inline-block; min-width: 1.5em; padding: 0 .4em; border: 1px soli
       <h1>Triple‑E <span>Bridge Command</span></h1>
     </div>
     <p class="lead">You are the Master of <b>MAJESTIC MAERSK</b>, a 399‑metre, 18,270 TEU Triple‑E, arriving fully laden at the Westerhaven Deepsea Terminal. Bring her in from the sea buoy, embark the pilot, work the channel, take the tugs and put her alongside Berth 4. Walk the bridge, use the real instruments and delegate to your officers.</p>
+    <div id="savesWrap" class="hidden">
+      <label class="t" style="display:block;font:600 10.5px ui-monospace,Menlo,monospace;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Continue a saved arrival</label>
+      <div id="saveList"></div>
+      <label class="t" style="display:block;font:600 10.5px ui-monospace,Menlo,monospace;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin:18px 0 8px">Or start a new arrival</label>
+    </div>
     <div class="opts">
       <div class="opt"><label class="t">Time of day</label><div class="seg" data-k="tod"><button data-v="morning" class="on">Morning</button><button data-v="golden">Golden hour</button><button data-v="night">Night</button></div></div>
       <div class="opt"><label class="t">Wind</label><div class="seg" data-k="wind"><button data-v="light">Light 6 kn</button><button data-v="moderate" class="on">Mod. 14 kn</button><button data-v="fresh">Fresh 24 kn</button></div></div>

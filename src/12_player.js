@@ -16,7 +16,11 @@ const PLAYER = {
     addEventListener('mousemove', (e) => this.onMove(e));
     el.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
-    document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement === el; UI.lockChanged(this.locked); });
+    document.addEventListener('pointerlockchange', () => {
+      this.locked = document.pointerLockElement === el; UI.lockChanged(this.locked);
+      // Esc while a display is up releases the mouse (browser rule) – treat it as "close"
+      if (!this.locked && UI.zoomOpen() && UI.zoomLocked) UI.closeZoom();
+    });
     document.addEventListener('pointerlockerror', () => { this.lockFailed = true; UI.lockChanged(false); });
     addEventListener('keydown', (e) => this.onKey(e, true));
     addEventListener('keyup', (e) => this.onKey(e, false));
@@ -32,6 +36,8 @@ const PLAYER = {
   },
   onDown(e) {
     AUDIO.resume(); G.bnwasT = 0;
+    // with the mouse captured, a click on a full-screen display simply closes it again
+    if (UI.zoomOpen() && (this.locked || e.target === renderer.domElement)) { UI.closeZoom(); return; }
     if (UI.modalOpen()) return;
     if (e.button === 2) { this.binoHold = true; return; }
     if (G.mode === 'orbit') { this.drag = { x: e.clientX, y: e.clientY, moved: 0 }; return; }
@@ -52,7 +58,7 @@ const PLAYER = {
     if (hit) { const ia = hit.object.userData.ia; if (ia.click) ia.click(hit, e.button); }
   },
   onMove(e) {
-    if (this.locked) { this.look(e.movementX, e.movementY); return; }
+    if (this.locked) { if (!UI.zoomOpen()) this.look(e.movementX, e.movementY); return; }
     this.mouse.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
     if (this.drag) {
       const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y;
@@ -67,10 +73,19 @@ const PLAYER = {
   },
   onWheel(e) {
     e.preventDefault();
+    if (UI.zoomOpen()) { UI.zoomRange(Math.sign(e.deltaY)); return; }
     if (G.mode === 'orbit') { this.orbit.dist = clamp(this.orbit.dist * (1 + Math.sign(e.deltaY) * 0.1), 90, 4000); return; }
     const hit = this.pick(this.locked ? null : e);
     if (hit && hit.object.userData.ia && hit.object.userData.ia.wheel) { hit.object.userData.ia.wheel(Math.sign(e.deltaY)); G.bnwasT = 0; }
   },
+  // Space / F: bring the display under the crosshair full screen (mouse stays captured)
+  zoomAtCrosshair() {
+    if (UI.zoomOpen()) { UI.closeZoom(); return true; }
+    const h = this.pick(this.locked ? null : this.mouseEvent());
+    if (h && h.object.userData.ia.zoom) { UI.zoomDisplay(h.object.userData.ia.zoom); return true; }
+    return false;
+  },
+  mouseEvent() { return { clientX: (this.mouse.x + 1) / 2 * innerWidth, clientY: (1 - this.mouse.y) / 2 * innerHeight }; },
   pick(e) {
     if (G.mode !== 'bridge') return null;
     if (this.locked || !e) this.ray.setFromCamera(new THREE.Vector2(0, 0), camera);
@@ -105,6 +120,9 @@ const PLAYER = {
     if (k === 'KeyH') { if (down !== G.whistle) setWhistle(down); e.preventDefault(); return; }
     if (k === 'KeyB' && down) { this.binos = !this.binos; return; }
     if (!down) return;
+    if (k === 'KeyS' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.keys.KeyS = false; SAVE.save(false); return; }
+    if (UI.zoomOpen() && (k === 'Space' || k === 'KeyF')) { UI.closeZoom(); e.preventDefault(); return; }
+    if (UI.zoomOpen() && /^(Minus|Equal|NumpadAdd|NumpadSubtract)$/.test(k)) { UI.zoomRange(k === 'Minus' || k === 'NumpadSubtract' ? -1 : 1); e.preventDefault(); return; }
     if (UI.handleKey(e)) { e.preventDefault(); return; }
     if (G.paused && k !== 'KeyP') return;
     const sh = e.shiftKey;
@@ -123,7 +141,8 @@ const PLAYER = {
       case 'KeyR': UI.zoomDisplay('radar1'); break;
       case 'KeyC': UI.zoomDisplay('conning'); break;
       case 'KeyG': UI.zoomDisplay('docking'); break;
-      case 'KeyF': { const h = this.pick(null); if (h && h.object.userData.ia.click) h.object.userData.ia.click(h, 0); break; }
+      case 'Space': if (!this.zoomAtCrosshair()) UI.toast('Look at a screen, chart or poster and press Space to view it full screen', 'info'); e.preventDefault(); break;
+      case 'KeyF': { if (this.zoomAtCrosshair()) break; const h = this.pick(this.locked ? null : this.mouseEvent()); if (h && h.object.userData.ia.click) h.object.userData.ia.click(h, 0); break; }
       case 'Tab': UI.openCrewMenu(); e.preventDefault(); break;
       case 'BracketRight': UI.setTimeScale(1); break;
       case 'BracketLeft': UI.setTimeScale(-1); break;
@@ -176,7 +195,7 @@ const PLAYER = {
     camera.position.y = this.eye + (moving ? Math.sin(this.bob * 2) * 0.022 : 0);
     camera.rotation.set(this.pitch, 0, 0);
     // hover
-    const h = this.locked || this.lockFailed || !this.drag ? this.pick(this.locked ? null : { clientX: (this.mouse.x + 1) / 2 * innerWidth, clientY: (1 - this.mouse.y) / 2 * innerHeight }) : null;
+    const h = this.locked || this.lockFailed || !this.drag ? this.pick(this.locked ? null : this.mouseEvent()) : null;
     const ia = h ? h.object.userData.ia : null;
     if (ia !== this.hover) { this.hover = ia; UI.setHover(ia); }
   },
