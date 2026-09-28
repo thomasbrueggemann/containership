@@ -235,9 +235,10 @@ class ShipPhysics {
       if (!tg.attached) { tg.power = Math.max(0, tg.power - dt * 0.2); this.forceLog.tugs[t] = 0; continue; }
       tg.power += clamp(tg.powerCmd - tg.power, -0.08 * dt, 0.08 * dt);
       let dd = ((tg.dirCmd - tg.dir + 540) % 360) - 180;
-      tg.dir = (tg.dir + clamp(dd, -2.2 * dt, 2.2 * dt) + 360) % 360;
+      // a reversal is push ↔ pull on the same line of action, not a sweep round the compass
+      tg.dir = Math.abs(dd) > 120 ? tg.dirCmd : (tg.dir + clamp(dd, -2.2 * dt, 2.2 * dt) + 360) % 360;
       const speedLoss = clamp(1 - (Math.abs(u) / KN - 4.5) / 4, 0, 1);
-      const F = tg.power * 690e3 * speedLoss; // ~70 t bollard pull ASD tug
+      const F = tg.power * 690e3 * speedLoss * (tg.eff ?? 1); // ~70 t bollard pull ASD tug, once on station
       const a = tg.dir * DEG;
       const Fx = F * Math.cos(a), Fy = F * Math.sin(a);
       X += Fx; Y += Fy; N += tg.xb * Fy;

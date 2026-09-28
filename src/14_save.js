@@ -40,9 +40,10 @@ const SAVE = {
       scn: { cur: SCN.cur, ok: SCN.steps.map((st) => !!st.ok), once: SCN.once, done: SCN.done, failed: SCN.failed, contactCool: SCN.contactCool, lastFenderT: SCN.lastFenderT ?? null, pilotT: SCN.pilotT || 0, conT: SCN.conT || 0,
         timers: SCN.timers.filter((t) => t.key).map((t) => ({ t: t.t, key: t.key, arg: t.arg })),
         lines: SCN.lineMeshes.map((L) => ({ xb: L.xb, yb: L.yb, qx: L.qx, qz: L.qz, fwd: L.fwd })) },
-      traffic: TRAFFIC.ships.map((o) => ({ name: o.name, x: o.x, z: o.z, psi: o.psi, sog: o.sog, cog: o.cog, active: o.active, wpi: o.wpi, tgt: o.tgt || null, done: !!o.done })),
+      traffic: TRAFFIC.ships.map((o) => ({ name: o.name, x: o.x, z: o.z, psi: o.psi, sog: o.sog, cog: o.cog, active: o.active, wpi: o.wpi, tgt: o.tgt || null, done: !!o.done,
+        dep: o.dep ? { ...o.dep } : null, tugs: o.tugs ? o.tugs.map((t) => ({ state: t.state, x: t.x, z: t.z, psi: t.psi, sog: t.sog, bx: t.bx, by: t.by })) : null })),
       pilotboat: { state: PILOTBOAT.state, x: PILOTBOAT.x, z: PILOTBOAT.z, psi: PILOTBOAT.psi, sog: PILOTBOAT.sog, alongT: PILOTBOAT.alongT || 0 },
-      tugs: { ordered: TUGS.ordered, list: TUGS.list.map((t) => ({ state: t.state, x: t.x, z: t.z, psi: t.psi, sog: t.sog, fastT: t.fastT, push: t.push })) },
+      tugs: { ordered: TUGS.ordered, list: TUGS.list.map((t) => ({ state: t.state, x: t.x, z: t.z, psi: t.psi, sog: t.sog, fastT: t.fastT, push: t.push, side: t.side, bx: t.bx, by: t.by })) },
       // someone on the way out (to a mooring station / the pilot ladder) counts as already gone
       crew: CREW.members.map((c) => ({ id: c.id, present: c.present && !(c.node === 'door' && c.path.length), x: c.x, z: c.z, node: c.node, face: c.face, idleFace: c.idleFace ?? 0, pose: c.pose ?? null, home: c.home,
         task: c.task && c.task.key && !c.task.started ? { spot: c.task.spot, key: c.task.key, arg: c.task.arg, dur: c.task.dur } : null })),
@@ -92,6 +93,15 @@ const SAVE = {
     // traffic
     for (const o of snap.traffic) {
       const t = TRAFFIC.ships.find((x) => x.name === o.name); if (!t) continue;
+      if (t.dep) {
+        if (o.dep) {
+          Object.assign(t.dep, o.dep);
+          (o.tugs || []).forEach((ot, i) => { const tt = t.tugs[i]; Object.assign(tt, ot); tt.wake.pts = []; tt.grp.position.set(tt.x, 0, tt.z); tt.grp.rotation.y = -tt.psi; });
+        } else if (o.active || o.done) {                              // older save: she had already sailed
+          t.dep.phase = 'done';
+          t.tugs.forEach((tt) => { tt.state = 'berth'; [tt.x, tt.z] = tt.home; tt.psi = 90 * DEG; tt.grp.position.set(tt.x, 0, tt.z); tt.grp.rotation.y = -tt.psi; });
+        } else continue;                                               // older save: still alongside
+      }
       Object.assign(t, { x: o.x, z: o.z, psi: o.psi, sog: o.sog, cog: o.cog, active: o.active, wpi: o.wpi, tgt: o.tgt || undefined });
       if (o.done) { t.done = true; t.trigger = null; }              // already sailed past, don't re-trigger
       t.grp.visible = t.active; t.grp.position.set(t.x, 0, t.z); t.grp.rotation.y = -t.psi; t.wakeObj.pts = [];
