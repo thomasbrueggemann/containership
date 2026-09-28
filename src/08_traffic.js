@@ -147,11 +147,12 @@ const TRAFFIC = {
   init() {
     if (CFG.traffic === 'off') return;
     // outbound container ship – alongside the south quay, bow east, starboard side to. Soon after
-    // we arrive she singles up, her two tugs pull her off, swing her in the basin and she sails
+    // we arrive she singles up, her two tugs pull her off and swing her in the basin; she lines up
+    // on the channel axis inside the breakwaters and runs straight out the Westgeul
     const hx = buildContainerShip({ L: 300, B: 48, T: 12.5, D: 12.5, hull: '#1c3f7a', boot: '#6a1d1a', name: 'HANSA EXPRESS', deckhouse: 0.8, funnel: 0.8, tiers: 6, seed: 31, style: 'generic', detail: 1, lightLoad: true, funnelColor: '#1c3f7a', palette: ['#1c3f7a', '#1c3f7a', '#243a86', '#dcdcd8', '#a8382a', '#6d7982'] });
     const hz = 760 - FENDER - 24;
-    const hansa = this.add({ name: 'HANSA EXPRESS', grp: hx, L: 300, B: 48, x: -450, z: hz, psi: 90 * DEG, speed: 11 * KN, wps: [[-1650, 180, 6], [-2800, -150, 8], [-8000, -160], [-13000, -170], [-16000, -1600]], wake: 26,
-      dep: { phase: 'moored', t: 0, v: 0, r: 0, turned: 0, z0: hz }, depTrigger: () => G.ship.x > -15000 });
+    const hansa = this.add({ name: 'HANSA EXPRESS', grp: hx, L: 300, B: 48, x: -450, z: hz, psi: 90 * DEG, speed: 11 * KN, wps: [[-800, 180, 6], [-1150, -120, 7], [-2800, -150, 10], [-8000, -160], [-13000, -170], [-16000, -1600]], wake: 26, accel: 0.035,
+      dep: { phase: 'moored', t: 0, v: 0, r: 0, turned: 0, z0: hz }, depTrigger: () => G.simT > 5 });
     hansa.tugs = [['WH ATLAS', 110, [-1020, 640]], ['WH SAMSON', -115, [-1080, 640]]].map(([name, xb, home]) => {
       const t = { name, xb, home, state: 'work', grp: buildTug(name), wake: new Wake({ width: 6, every: 1, life: 120, spread: 0.4, max: 100 }), line: makeTowline(), sog: 0, bx: null, by: null };
       const st = tugStation(300, 48, xb, -1, 270, 0.2);
@@ -189,7 +190,7 @@ const TRAFFIC = {
         else if (o.circle) { const a = Math.atan2(o.z - o.circle.cz, o.x - o.circle.cx) + 0.25; tx = o.circle.cx + Math.cos(a) * o.circle.r; tz = o.circle.cz + Math.sin(a) * o.circle.r; }
         const want = Math.atan2(tx - o.x, -(tz - o.z));
         o.psi += clamp(wrapPi(want - o.psi), -0.012 * dt * (o.L < 60 ? 4 : 1), 0.012 * dt * (o.L < 60 ? 4 : 1));
-        o.sog += clamp(o.speed - o.sog, -0.015 * dt, 0.015 * dt);
+        o.sog += clamp(o.speed - o.sog, -(o.accel || 0.015) * dt, (o.accel || 0.015) * dt);
         o.x += Math.sin(o.psi) * o.sog * dt; o.z -= Math.cos(o.psi) * o.sog * dt;
         o.cog = o.psi;
       }
@@ -215,18 +216,18 @@ const TRAFFIC = {
     const D = o.dep; D.t += dt;
     let vT = 0, rT = 0;
     if (D.phase === 'moored') { if (o.depTrigger && o.depTrigger()) { D.phase = 'singleup'; D.t = 0; SCN.onTraffic(o); } }
-    else if (D.phase === 'singleup') { if (D.t > 50) { D.phase = 'pulloff'; D.t = 0; } }
+    else if (D.phase === 'singleup') { if (D.t > 30) { D.phase = 'pulloff'; D.t = 0; } }
     else if (D.phase === 'pulloff') {
       const off = D.z0 - o.z;               // metres off the quay (she lies bow east, so off = north)
-      vT = -clamp((172 - off) * 0.03, 0.08, 0.7);
+      vT = -clamp((172 - off) * 0.035, 0.1, 0.85);
       if (off > 166) { D.phase = 'swing'; D.t = 0; }
     } else if (D.phase === 'swing') {
       const rem = 180 - D.turned;
-      rT = -clamp(rem * 0.025, 0.08, 0.6) * DEG;
+      rT = -clamp(rem * 0.03, 0.1, 0.9) * DEG;
       if (rem < 0.5) { D.phase = 'done'; o.psi = 270 * DEG; D.v = D.r = 0; o.sog = 0; o.wpi = 0; o.tugs.forEach((t) => (t.state = 'home')); return; }
     }
-    D.v += clamp(vT - D.v, -0.012 * dt, 0.012 * dt);
-    D.r += clamp(rT - D.r, -0.012 * DEG * dt, 0.012 * DEG * dt);
+    D.v += clamp(vT - D.v, -0.015 * dt, 0.015 * dt);
+    D.r += clamp(rT - D.r, -0.02 * DEG * dt, 0.02 * DEG * dt);
     o.x += Math.cos(o.psi) * D.v * dt; o.z += Math.sin(o.psi) * D.v * dt;
     o.psi += D.r * dt; D.turned += Math.abs(D.r) * dt / DEG;
     o.sog = Math.abs(D.v); o.cog = Math.abs(D.v) > 0.02 ? o.psi + (D.v < 0 ? -Math.PI / 2 : Math.PI / 2) : o.psi;
