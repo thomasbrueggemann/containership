@@ -147,8 +147,9 @@ const TRAFFIC = {
   init() {
     if (CFG.traffic === 'off') return;
     // outbound container ship – alongside the south quay, bow east, starboard side to. Soon after
-    // we arrive she singles up, her two tugs pull her off and swing her in the basin; she lines up
-    // on the channel axis inside the breakwaters and runs straight out the Westgeul
+    // we arrive she singles up, her two tugs pull her off and swing her in the basin. VTS holds her
+    // there until our pilot is aboard; then she lines up on the channel axis inside the breakwaters
+    // and runs straight out the Westgeul
     const hx = buildContainerShip({ L: 300, B: 48, T: 12.5, D: 12.5, hull: '#1c3f7a', boot: '#6a1d1a', name: 'HANSA EXPRESS', deckhouse: 0.8, funnel: 0.8, tiers: 6, seed: 31, style: 'generic', detail: 1, lightLoad: true, funnelColor: '#1c3f7a', palette: ['#1c3f7a', '#1c3f7a', '#243a86', '#dcdcd8', '#a8382a', '#6d7982'] });
     const hz = 760 - FENDER - 24;
     const hansa = this.add({ name: 'HANSA EXPRESS', grp: hx, L: 300, B: 48, x: -450, z: hz, psi: 90 * DEG, speed: 11 * KN, wps: [[-800, 180, 6], [-1150, -120, 7], [-2800, -150, 10], [-8000, -160], [-13000, -170], [-16000, -1600]], wake: 26, accel: 0.035,
@@ -224,7 +225,16 @@ const TRAFFIC = {
     } else if (D.phase === 'swing') {
       const rem = 180 - D.turned;
       rT = -clamp(rem * 0.03, 0.1, 0.9) * DEG;
-      if (rem < 0.5) { D.phase = 'done'; o.psi = 270 * DEG; D.v = D.r = 0; o.sog = 0; o.wpi = 0; o.tugs.forEach((t) => (t.state = 'home')); return; }
+      if (rem < 0.5) {
+        o.psi = 270 * DEG; D.r = 0; D.phase = 'hold'; D.t = 0;
+        // VTS keeps her in the basin until the inbound has her pilot, so the passing is pilot to pilot
+        if (!G.flags.pilotOnBridge) SCN.say('vts', 'HANSA EXPRESS, Westerhaven Traffic: hold in the basin, inbound Majestic Maersk is still embarking her pilot. I will call you.', true);
+      }
+    } else if (D.phase === 'hold') {
+      if (G.flags.pilotOnBridge) {
+        if (D.t > 5) SCN.say('vts', 'HANSA EXPRESS, Westerhaven Traffic: Majestic Maersk has her pilot. You may proceed outbound, pass port to port in the Westgeul.', true);
+        D.phase = 'done'; D.v = D.r = 0; o.sog = 0; o.wpi = 0; o.tugs.forEach((t) => (t.state = 'home')); return;
+      }
     }
     D.v += clamp(vT - D.v, -0.015 * dt, 0.015 * dt);
     D.r += clamp(rT - D.r, -0.02 * DEG * dt, 0.02 * DEG * dt);
@@ -240,7 +250,7 @@ const TRAFFIC = {
       let power = 0;
       if (t.state === 'work') {
         const ph = D.phase, dir = ph === 'swing' && i === 1 ? 90 : 270;
-        power = ph === 'pulloff' ? 0.75 : ph === 'swing' ? 0.85 : 0.15;
+        power = ph === 'pulloff' ? 0.75 : ph === 'swing' ? 0.85 : 0.15; // holding: lines slack, standing by
         const st = tugStation(o.L, o.B, t.xb, -1, dir, power);
         tugGlide(t, h, st.x, st.y, st.rel, dt);
         if (!st.push) setTowline(t.line, h, st.ax, st.ay, 13, t); else t.line.visible = false;
