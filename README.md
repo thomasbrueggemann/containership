@@ -15,6 +15,12 @@ python3 -m http.server 8765
 Run `node build.mjs` first, then open <http://localhost:8765>. (`index.html` is self-contained; three.js loads from jsDelivr.)
 URL options: `?autostart&tod=night&wind=fresh&sea=rough&voice=off&quality=medium`.
 
+Crew voices are synthesised in the browser by [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (via
+`kokoro-js`, on WebGPU in a Web Worker). The ~330 MB model is fetched from Hugging Face on the first visit and cached by
+the browser. The bridge team is heard in the room; VTS, tugs, the pilot boat, the deck stations and the engine room come
+through a VHF radio chain (band-pass, nasal mid boost, soft clipping, hiss). Without WebGPU the game falls back to the
+browser's built-in speech.
+
 Progress is saved in the browser's `localStorage` (pause menu, the **Save** button or Ctrl/⌘+S, plus an
 autosave every 90 s and when the tab is closed). The start screen lists the five most recent saves.
 
@@ -45,6 +51,7 @@ output and is not committed; run `node build.mjs` locally before serving.
 ## Credits
 
 - [three.js](https://threejs.org) (MIT), loaded from jsDelivr.
+- Voices: [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (Apache-2.0) via [kokoro-js](https://www.npmjs.com/package/kokoro-js) (Apache-2.0).
 - Crew faces use the Lee Perry-Smith head scan from the three.js examples
   ([Infinite-Realities](https://www.ir-ltd.net), CC BY 3.0).
 - The female officer's head and hair come from the `female02` figure in the three.js examples

@@ -57,6 +57,71 @@ const AUDIO = {
     const s = c.createBufferSource(); s.buffer = b; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2200; f.Q.value = 0.8; const g = c.createGain(); g.gain.value = 0.08;
     s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
   },
+  // ---------------------------------------------------------------- voices
+  // Bridge team: dry, panned to where they stand, with a little room. Radio and the ECR phone: band-limited to
+  // ~300–3000 Hz, a nasal mid bump, driven into a soft clipper with a hiss bed, then out of the VHF speaker.
+  voiceBus() {
+    if (this.vb || !this.ctx) return this.vb;
+    const c = this.ctx, vb = this.vb = {};
+    // small steel-and-glass wheelhouse: ~0.4 s decay
+    const len = Math.floor(c.sampleRate * 0.45), ir = c.createBuffer(2, len, c.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); let lp = 0; for (let i = 0; i < len; i++) { lp += 0.35 * ((Math.random() * 2 - 1) - lp); d[i] = lp * Math.exp(-i / (c.sampleRate * 0.085)) * (i < c.sampleRate * 0.006 ? 0 : 1); } }
+    vb.room = c.createConvolver(); vb.room.buffer = ir; const rg = c.createGain(); rg.gain.value = 0.22; vb.room.connect(rg); rg.connect(this.master);
+    vb.dry = c.createGain(); vb.dry.gain.value = 1.0; vb.dry.connect(this.master); vb.dry.connect(vb.room);
+    const bq = (type, f, q, g = 0) => { const b = c.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; b.gain.value = g; return b; };
+    const line = (...n) => { for (let i = 0; i < n.length - 1; i++) n[i].connect(n[i + 1]); return n; };
+    vb.radioIn = c.createGain();
+    vb.drive = c.createGain(); vb.drive.gain.value = 5;
+    const ws = c.createWaveShaper(), curve = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; curve[i] = Math.tanh(1.6 * x + 0.12 * x * x) / Math.tanh(1.6); }   // slight asymmetry → even harmonics
+    ws.curve = curve; ws.oversample = '2x';
+    const comp = c.createDynamicsCompressor(); comp.threshold.value = -22; comp.ratio.value = 6; comp.attack.value = 0.003; comp.release.value = 0.12;
+    vb.radioOut = c.createGain(); vb.radioOut.gain.value = 0.5;
+    line(vb.radioIn, bq('highpass', 320, 0.7), bq('highpass', 320, 0.7), bq('peaking', 1700, 1.3, 8), bq('peaking', 650, 1.0, -4), bq('lowpass', 3000, 0.9),
+      vb.drive, ws, bq('lowpass', 3300, 0.7), bq('highpass', 280, 0.7), comp, vb.radioOut, this.master);
+    const spk = c.createGain(); spk.gain.value = 0.5; vb.radioOut.connect(spk); spk.connect(vb.room);   // the speaker is in the same room
+    // carrier hiss, gated with the transmission and fluttering a little
+    const nb = c.createBuffer(1, c.sampleRate * 2, c.sampleRate), nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const ns = c.createBufferSource(); ns.buffer = nb; ns.loop = true;
+    vb.hiss = c.createGain(); vb.hiss.gain.value = 0;
+    const fl = c.createOscillator(); fl.frequency.value = 3.3; const flg = c.createGain(); flg.gain.value = 0.004; fl.connect(flg); flg.connect(vb.hiss.gain); fl.start();
+    line(ns, bq('bandpass', 1900, 0.5), vb.hiss, vb.drive); ns.start();
+    vb.srcs = new Set();
+    return vb;
+  },
+  // an output for one utterance; .end() closes the transmission
+  voiceOut(radio, id) {
+    const vb = this.voiceBus(); if (!vb) return null;
+    const c = this.ctx, t = c.currentTime, g = c.createGain();
+    if (radio) {
+      g.gain.value = 1; g.connect(vb.radioIn);
+      vb.hiss.gain.cancelScheduledValues(t); vb.hiss.gain.setTargetAtTime(0.014 + Math.random() * 0.01, t, 0.02);
+      return { node: g, end: () => vb.hiss.gain.setTargetAtTime(0, c.currentTime, 0.03) };
+    }
+    // where the speaker is relative to the player's head
+    let pan = 0, k = 0.75;
+    const cm = CREW.byId(id);
+    if (cm && G.mode === 'bridge') {
+      const v = new THREE.Vector3(); cm.head.getWorldPosition(v); v.applyMatrix4(camera.matrixWorldInverse);
+      const d = v.length(); pan = clamp(v.x / Math.max(1, d), -0.85, 0.85); k = 1 / (1 + Math.max(0, d - 3) / 14);
+    }
+    const p = c.createStereoPanner(); p.pan.value = pan; g.gain.value = 2.4 * k;
+    g.connect(p); p.connect(vb.dry);
+    return { node: g, end: () => {} };
+  },
+  // queue one PCM chunk at time t on an output; returns when it ends
+  playPcm(ch, out, t) {
+    if (!this.ctx || !out) return t;
+    const c = this.ctx, b = c.createBuffer(1, ch.pcm.length, ch.rate); b.copyToChannel(ch.pcm, 0);
+    let pk = 0; for (let i = 0; i < ch.pcm.length; i++) pk = Math.max(pk, Math.abs(ch.pcm[i]));
+    const s = c.createBufferSource(); s.buffer = b;
+    const n = c.createGain(); n.gain.value = Math.min(3, 0.55 / Math.max(pk, 0.05));   // even out sentence levels
+    s.connect(n); n.connect(out.node);
+    const at = Math.max(t, c.currentTime + 0.01); s.start(at);
+    const vb = this.vb; vb.srcs.add(s); s.onended = () => vb.srcs.delete(s);
+    return at + b.duration + 0.12;                                 // short breath between sentences
+  },
+  stopVoice() { if (!this.vb) return; for (const s of this.vb.srcs) try { s.stop(); } catch (e) {} this.vb.srcs.clear(); this.vb.hiss.gain.value = 0; },
   bell() { if (!this.ctx) return; for (const [f, v, d] of [[587, 0.14, 3.5], [1415, 0.07, 2.4], [2390, 0.04, 1.6], [3120, 0.02, 1.1], [293, 0.05, 3.8]]) this.tone(f, d, 'sine', v); },
   thud(k = 1) { if (!this.ctx) return; this.tone(42, 1.6, 'sine', 0.35 * k); this.tone(70, 0.9, 'triangle', 0.15 * k); this.tone(28, 2.2, 'sine', 0.25 * k); },
   horn(dur = 1, pitch = 1) {

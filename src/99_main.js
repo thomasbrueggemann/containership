@@ -162,6 +162,7 @@ async function startGame() {
     await progress(0.02, 'Starting the renderer');
     initRenderer();
     AUDIO.init();
+    NEURAL.load();                       // fetch the voice model while the world builds
     await progress(0.05, 'Painting the sky');
     buildEnvironment();
     await buildWorld(progress);
@@ -191,7 +192,7 @@ async function startGame() {
 
 UI.init();
 SAVE.init();
-window.__dbg = { G, PLAYER, SCN, CREW, HEADS, SPOTS, SAVE, TUGS, TRAFFIC, PILOTBOAT, BR, get camera() { return camera; }, get scene() { return scene; }, get renderer() { return renderer; }, teleStep, setSteering, requestEngineMode, startThrusters, berthInfo,
+window.__dbg = { G, PLAYER, SCN, CREW, SPEECH, NEURAL, AUDIO, HEADS, SPOTS, SAVE, TUGS, TRAFFIC, PILOTBOAT, BR, get camera() { return camera; }, get scene() { return scene; }, get renderer() { return renderer; }, teleStep, setSteering, requestEngineMode, startThrusters, berthInfo,
   frame(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   run(sec, dt = 0.25) { for (let t = 0; t < sec; t += dt) { simTick(dt); CREW.update(dt); } return { simT: G.simT, x: G.ship.x, z: G.ship.z, sog: G.ship.sog / KN, step: SCN.cur }; } };
 if (/autostart/.test(location.search)) { const q = new URLSearchParams(location.search); for (const k of Object.keys(CFG)) if (q.get(k)) CFG[k] = q.get(k); startGame(); }

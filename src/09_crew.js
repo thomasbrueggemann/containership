@@ -106,10 +106,109 @@ function buildHuman(o) {
 }
 
 // ------------------------------------------------------------- speech
+// Neural voices: Kokoro-82M (Apache-2.0) runs in a Web Worker on WebGPU (or threaded WASM if cross-origin isolated).
+// The model (~330 MB fp32) comes from Hugging Face once and stays in the browser cache. Until it is ready, or if
+// this machine is too slow for it, lines fall back to the browser's own speechSynthesis.
+const KOKORO = {
+  lib: 'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js',
+  model: 'onnx-community/Kokoro-82M-v1.0-ONNX',
+  // [voice, speed] per speaker; the stations on deck are the C/O and 2/O on their handhelds
+  voices: { co: ['bm_george', 1.0], o2: ['af_heart', 1.02], o3: ['am_michael', 1.0], ab: ['am_puck', 1.0], pilot: ['bm_fable', 1.04],
+    ce: ['am_fenrir', 0.98], vts: ['bf_emma', 1.08], t1: ['bm_lewis', 1.08], t2: ['am_eric', 1.08], pb: ['am_liam', 1.06],
+    fwd: ['bm_george', 1.04], aft: ['af_heart', 1.04], hx: ['am_onyx', 1.04] },
+};
+const KOKORO_WORKER = `
+let tts = null, chain = Promise.resolve();
+const dropped = new Set();
+self.onmessage = (e) => {
+  const m = e.data;
+  if (m.type === 'cancel') { dropped.add(m.id); return; }
+  if (m.type === 'load') { chain = chain.then(() => load(m)); return; }
+  if (m.type === 'say') chain = chain.then(() => say(m));
+};
+async function load(m) {
+  try {
+    const { KokoroTTS } = await import(m.lib);
+    const progress_callback = (p) => { if (p.status === 'progress' && /onnx/.test(p.file || '')) self.postMessage({ type: 'progress', p: p.progress }); };
+    let device = 'wasm';
+    if (m.webgpu) {
+      try { tts = await KokoroTTS.from_pretrained(m.model, { dtype: 'fp32', device: 'webgpu', progress_callback }); device = 'webgpu'; }
+      catch (err) { tts = null; }
+    }
+    // WASM is only quick enough with threads, which need cross-origin isolation (GitHub Pages can't send those headers)
+    if (!tts && self.crossOriginIsolated) tts = await KokoroTTS.from_pretrained(m.model, { dtype: 'q8', device: 'wasm', progress_callback });
+    if (!tts) throw new Error('no WebGPU');
+    await tts.generate('Ready.', { voice: 'af_heart' });     // warm up the kernels
+    self.postMessage({ type: 'ready', device });
+  } catch (err) { self.postMessage({ type: 'fail', msg: String((err && err.message) || err) }); }
+}
+async function say(m) {
+  if (!tts || dropped.has(m.id)) { self.postMessage({ type: 'done', id: m.id }); return; }
+  try {
+    // one sentence at a time so playback can start early (kokoro-js 1.2.1's stream() never ends on a plain string)
+    for (const t of m.text.split(/(?<=[.!?])\\s+/).filter((x) => /\\w/.test(x))) {
+      if (dropped.has(m.id)) break;
+      const audio = await tts.generate(t, { voice: m.voice, speed: m.speed });
+      const pcm = audio.audio;
+      self.postMessage({ type: 'chunk', id: m.id, pcm, rate: audio.sampling_rate }, [pcm.buffer]);
+    }
+    self.postMessage({ type: 'done', id: m.id });
+  } catch (err) { self.postMessage({ type: 'error', id: m.id, msg: String(err) }); }
+}`;
+const NEURAL = {
+  state: 'off', w: null, jobs: {}, n: 0, device: '', slow: 0,
+  ok() { return this.state === 'ready' && CFG.voice === 'on'; },
+  load() {
+    if (this.state !== 'off' || CFG.voice !== 'on' || typeof Worker === 'undefined') return;
+    if (!('gpu' in navigator) && !self.crossOriginIsolated) { this.state = 'failed'; return; }
+    this.state = 'loading';
+    try { this.w = new Worker(URL.createObjectURL(new Blob([KOKORO_WORKER], { type: 'text/javascript' })), { type: 'module' }); }
+    catch (e) { this.state = 'failed'; return; }
+    this.w.onmessage = (e) => this.msg(e.data);
+    this.w.onerror = (e) => { console.warn('Neural voices unavailable', e.message); this.state = 'failed'; };
+    this.w.postMessage({ type: 'load', lib: KOKORO.lib, model: KOKORO.model, webgpu: 'gpu' in navigator });
+  },
+  msg(m) {
+    if (m.type === 'ready') { this.state = 'ready'; this.device = m.device; console.info('Neural crew voices ready (' + m.device + ')'); return; }
+    if (m.type === 'fail') { this.state = 'failed'; console.warn('Neural voices unavailable:', m.msg); return; }
+    if (m.type === 'progress') { this.progress = m.p; return; }
+    const j = this.jobs[m.id]; if (!j) return;
+    if (m.type === 'chunk') {
+      j.chunks.push({ pcm: m.pcm, rate: m.rate });
+      j.samples += m.pcm.length / m.rate;
+      if (!j.firstT) j.firstT = performance.now();
+    }
+    if (m.type === 'done' || m.type === 'error') {
+      j.done = true; if (m.type === 'error') j.failed = true;
+      delete this.jobs[m.id];
+      // far slower than real time (single-threaded WASM on a weak CPU): give up and use the system voice
+      const gen = (performance.now() - j.t0) / 1000;
+      if (j.samples > 1.5) this.slow = gen / j.samples > 1.4 ? this.slow + 1 : 0;
+      if (this.slow >= 3) { this.state = 'failed'; console.warn('Neural voices too slow here — using system speech'); }
+    }
+    if (j.wake) j.wake();
+  },
+  request(id, text) {
+    const [voice, speed] = KOKORO.voices[id] || ['am_michael', 1];
+    const j = { key: ++this.n, chunks: [], samples: 0, done: false, failed: false, t0: performance.now(), firstT: 0, wake: null };
+    this.jobs[j.key] = j;
+    this.w.postMessage({ type: 'say', id: j.key, text, voice, speed });
+    return j;
+  },
+  cancel(j) { if (j && !j.done) { this.w.postMessage({ type: 'cancel', id: j.key }); j.done = true; delete this.jobs[j.key]; } },
+};
+// what the TTS should say for a subtitle line
+function speakable(t) {
+  return t.replace(/°/g, ' degrees').replace(/\bkn\b/g, 'knots').replace(/…/g, ', ')
+    .replace(/\bOYGR2\b/g, 'Oscar Yankee Golf Romeo Two').replace(/Maersk/g, 'Mersk')
+    .replace(/\b[A-Z]{4,}\b/g, (w) => w[0] + w.slice(1).toLowerCase());
+}
+
 const SPEECH = {
-  queue: [], busy: false, voices: [], cur: null,
+  queue: [], busy: false, voices: [], cur: null, gen: 0,
   speaking(id) { return this.cur === id || this.queue.some((q) => q.id === id); },
   init() {
+    NEURAL.load();
     if (!('speechSynthesis' in window)) return;
     const load = () => { this.voices = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang)); };
     load(); speechSynthesis.onvoiceschanged = load;
@@ -121,36 +220,82 @@ const SPEECH = {
     for (const n of pref) { const f = v.find((x) => x.name.includes(n)); if (f) return f; }
     return v[(id.charCodeAt(0) + id.length) % v.length];
   },
+  // whose voice reads the line (the VTS id also carries HANSA EXPRESS's own calls)
+  voiceId(it) { return it.id === 'vts' && /^[^,]+, HANSA EXPRESS:/.test(it.text) ? 'hx' : it.id; },
+  // the bridge team is heard in the room; everyone else comes through the VHF speaker or the ECR phone
+  onBridge(id) { const c = CREW.byId(id); return !!(c && c.present); },
   say(id, text, radio) {
-    this.queue.push({ id, text, radio });
-    if (this.queue.length > 5) this.queue.splice(0, this.queue.length - 5);
+    const it = { id, text, radio };
+    if (NEURAL.ok() && id !== 'me') it.job = NEURAL.request(this.voiceId(it), speakable(text));   // start synthesising while earlier lines play
+    this.queue.push(it);
+    if (this.queue.length > 5) for (const d of this.queue.splice(0, this.queue.length - 5)) NEURAL.cancel(d.job);
     if (!this.busy) this.next();
   },
+  clear() { for (const d of this.queue) NEURAL.cancel(d.job); this.queue = []; this.gen++; AUDIO.stopVoice(); if ('speechSynthesis' in window) speechSynthesis.cancel(); this.busy = false; this.cur = null; },
   next() {
+    // the model is still coming in (first ~15 s of a first visit): hold the opening lines rather than say them robotically
+    if (NEURAL.state === 'loading' && CFG.voice === 'on' && this.queue.length && performance.now() - (this._holdT ??= performance.now()) < 12000) {
+      this.busy = true; setTimeout(() => this.next(), 250); return;
+    }
     const it = this.queue.shift();
     if (!it) { this.busy = false; this.cur = null; return; }
     this.busy = true; this.cur = it.id;
-    const who = CREW.info[it.id] || { short: it.id, color: '#ccc' };
-    UI.sub(who.short, it.text, it.id, it.radio);
-    const c = CREW.byId(it.id); if (c) c.talk(Math.max(2, it.text.length * 0.065));
-    if (it.radio) AUDIO.squelch();
+    const gen = this.gen;
     const dur = Math.max(2.4, it.text.length * 0.062) * 1000;
-    let done = false; const fin = () => { if (done) return; done = true; if (it.radio) AUDIO.squelch(); setTimeout(() => this.next(), 250); };
-    if (CFG.voice === 'on' && 'speechSynthesis' in window && it.id !== 'me') {
-      try {
-        const u = new SpeechSynthesisUtterance(it.text.replace(/°/g, ' degrees').replace(/\bkn\b/g, 'knots'));
-        const v = this.voiceFor(it.id); if (v) u.voice = v;
-        u.rate = { pilot: 1.08, vts: 1.1, t1: 1.12, t2: 1.12, ab: 1.05 }[it.id] || 1.0;
-        u.pitch = { o2: 1.08, vts: 1.05, ab: 0.9, t1: 0.8, t2: 0.75, ce: 0.8, co: 0.95 }[it.id] || 1.0;
-        u.volume = it.radio ? 0.8 : 1.0;
-        let started = false;
-        u.onstart = () => { started = true; };
-        u.onend = fin; u.onerror = fin;
-        speechSynthesis.speak(u);
-        setTimeout(() => { if (!started && !speechSynthesis.speaking) { speechSynthesis.cancel(); setTimeout(fin, dur - 1500); } }, 1500);
-        setTimeout(fin, dur * 1.6 + 2500);
-      } catch (e) { setTimeout(fin, dur); }
-    } else setTimeout(fin, dur);
+    let done = false; const fin = () => { if (done || gen !== this.gen) return; done = true; if (it.radio) AUDIO.squelch(); setTimeout(() => this.next(), 250); };
+    const begin = (len) => {
+      const who = CREW.info[it.id] || { short: it.id, color: '#ccc' };
+      UI.sub(who.short, it.text, it.id, it.radio);
+      const c = CREW.byId(it.id); if (c) c.talk(len || Math.max(2, it.text.length * 0.065));
+      if (it.radio) AUDIO.squelch();
+    };
+    if (CFG.voice !== 'on' || it.id === 'me') { begin(); setTimeout(fin, dur); return; }
+    if (!it.job && NEURAL.ok()) it.job = NEURAL.request(this.voiceId(it), speakable(it.text));
+    if (it.job) this.playNeural(it, begin, fin, gen);
+    else { begin(); this.systemSay(it, fin, dur); }
+  },
+  // play a Kokoro job as its sentences arrive: dry and placed in the room for the bridge team, through the radio chain otherwise
+  playNeural(it, begin, fin, gen) {
+    const j = it.job, radio = !this.onBridge(it.id);
+    let started = false, endT = 0, played = 0, out = null;
+    const wait = setTimeout(() => {                     // nothing after 8 s: say it with the system voice instead
+      if (started || gen !== this.gen) return; NEURAL.cancel(j); j.wake = null;
+      begin(); this.systemSay(it, fin, Math.max(2.4, it.text.length * 0.062) * 1000);
+    }, 8000);
+    const pump = () => {
+      if (gen !== this.gen) return;
+      if (!started) {
+        if (j.failed && !j.chunks.length) { clearTimeout(wait); j.wake = null; begin(); this.systemSay(it, fin, Math.max(2.4, it.text.length * 0.062) * 1000); return; }
+        if (!j.chunks.length) return;
+        clearTimeout(wait); started = true;
+        out = AUDIO.voiceOut(radio, it.id);
+        begin(j.done ? j.samples : Math.max(2, it.text.length * 0.065));
+        endT = AUDIO.ctx ? AUDIO.ctx.currentTime + (radio ? 0.16 : 0.02) : 0;
+      }
+      while (played < j.chunks.length) endT = AUDIO.playPcm(j.chunks[played++], out, endT);
+      if (j.done) {
+        j.wake = null;
+        const left = AUDIO.ctx ? Math.max(0, endT - AUDIO.ctx.currentTime) : 0;
+        setTimeout(() => { if (out) out.end(); fin(); }, left * 1000 + 60);
+      }
+    };
+    j.wake = pump; pump();
+  },
+  systemSay(it, fin, dur) {
+    if (!('speechSynthesis' in window)) { setTimeout(fin, dur); return; }
+    try {
+      const u = new SpeechSynthesisUtterance(speakable(it.text));
+      const v = this.voiceFor(it.id); if (v) u.voice = v;
+      u.rate = { pilot: 1.08, vts: 1.1, t1: 1.12, t2: 1.12, ab: 1.05 }[it.id] || 1.0;
+      u.pitch = { o2: 1.08, vts: 1.05, ab: 0.9, t1: 0.8, t2: 0.75, ce: 0.8, co: 0.95 }[it.id] || 1.0;
+      u.volume = it.radio ? 0.8 : 1.0;
+      let started = false;
+      u.onstart = () => { started = true; };
+      u.onend = fin; u.onerror = fin;
+      speechSynthesis.speak(u);
+      setTimeout(() => { if (!started && !speechSynthesis.speaking) { speechSynthesis.cancel(); setTimeout(fin, dur - 1500); } }, 1500);
+      setTimeout(fin, dur * 1.6 + 2500);
+    } catch (e) { setTimeout(fin, dur); }
   },
 };
 

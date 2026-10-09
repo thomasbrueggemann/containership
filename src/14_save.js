@@ -131,7 +131,7 @@ const SAVE = {
     const p = snap.player; PLAYER.place(p.x, p.z, p.yaw); PLAYER.pitch = p.pitch;
     if (BR.seats[p.seat]) PLAYER.sit(BR.seats[p.seat], true);
     if (p.mode === 'orbit') PLAYER.toggleOrbit();
-    SPEECH.queue = [];
+    SPEECH.clear();
     UI.refreshTC(); UI.updateMission(true);
     UI.toast('Welcome back, Captain — ' + (snap.meta.title || '') , 'info');
   },
