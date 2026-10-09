@@ -224,8 +224,10 @@ const SPEECH = {
   voiceId(it) { return it.id === 'vts' && /^[^,]+, HANSA EXPRESS:/.test(it.text) ? 'hx' : it.id; },
   // the bridge team is heard in the room; everyone else comes through the VHF speaker or the ECR phone
   onBridge(id) { const c = CREW.byId(id); return !!(c && c.present); },
-  say(id, text, radio) {
-    const it = { id, text, radio };
+  // `slot` names a running report (telegraph repeat, helm repeat…): a newer line drops the one still waiting in the queue
+  say(id, text, radio, slot) {
+    const it = { id, text, radio, slot };
+    if (slot) this.queue = this.queue.filter((q) => { if (q.slot !== slot) return true; NEURAL.cancel(q.job); return false; });
     if (NEURAL.ok() && id !== 'me') it.job = NEURAL.request(this.voiceId(it), speakable(text));   // start synthesising while earlier lines play
     this.queue.push(it);
     if (this.queue.length > 5) for (const d of this.queue.splice(0, this.queue.length - 5)) NEURAL.cancel(d.job);
@@ -561,7 +563,7 @@ const CREW = {
     tugs: () => { G.vhfCh = 12; SCN.tugCall('o2'); },
     standby: () => { CREW.say('o3', 'Ringing stand-by engine, Captain.'); requestEngineMode('STANDBY'); },
     thrusters: () => { CREW.say('o3', 'Starting bow thrusters.'); startThrusters(); },
-    navlights: () => { G.navLights = !G.navLights; CREW.say('o3', 'Navigation lights ' + (G.navLights ? 'on' : 'off') + '.'); if (G.navLights && ENV.night) SCN.bonus('Nav lights at night', 25, 'navl'); },
+    navlights: () => { G.navLights = !G.navLights; CREW.say('o3', CREW.vary('navl', G.navLights ? ['Navigation lights on.', 'Nav lights are on, Captain.', 'Switching on the navigation lights.'] : ['Navigation lights off.', 'Nav lights off, Captain.', 'Navigation lights switched off.'])); if (G.navLights && ENV.night) SCN.bonus('Nav lights at night', 25, 'navl'); },
     position: () => SCN.reportPosition(),
     traffic: () => SCN.reportTraffic(),
     checklist: () => SCN.checklistReport('co'),
@@ -596,7 +598,15 @@ const CREW = {
       c.doTask(spot, { ambient: true, dur: 8 + Math.random() * 14 });
     }
   },
-  say(id, text, radio) { SPEECH.say(id, text, radio); },
+  say(id, text, radio, slot) { SPEECH.say(id, text, radio, slot); },
+  // one of a few equivalent phrasings, never the same one twice running — people don't talk like a tape loop
+  vary(key, opts) {
+    const last = (this._varied ||= {})[key];
+    let i = Math.floor(Math.random() * opts.length);
+    if (opts.length > 1 && i === last) i = (i + 1 + Math.floor(Math.random() * (opts.length - 1))) % opts.length;
+    this._varied[key] = i;
+    return opts[i];
+  },
   findPath(a, b) {
     if (a === b) return [b];
     // shortest walking distance (Dijkstra; the graph has ~30 nodes)
@@ -622,16 +632,56 @@ const CREW = {
   },
   // the helmsman / 3/O repeat an order back to whoever gave it: "Starboard five, pilot."
   helmOrder(deg, by = 'Captain') {
-    // AB repeats the order (debounced)
+    // AB repeats where the wheel ends up once the orders stop coming (a quick 5–10–15 gets one "Starboard fifteen")
     clearTimeout(this._helmT);
-    this._helmT = setTimeout(() => {
-      if (this.atHelm()) this.say('ab', this.helmPhrase(deg) + ', ' + by + '.' + (Math.random() < 0.4 ? ' Wheel is ' + this.helmPhrase(deg).toLowerCase() + '.' : ''));
-    }, 500);
+    this._helmT = setTimeout(() => { if (this.atHelm()) this.say('ab', this.helmAckLine(deg, by), false, 'helm'); }, 900);
     G.abCourse = null;
   },
-  teleAck(label, by = 'Captain') {
+  helmAckLine(deg, by) {
+    const P = this.helmPhrase(deg), p = P.toLowerCase();
+    if (deg === 0) return this.vary('helm0', ['Midships, ' + by + '.', 'Midships.', 'Midships. Wheel is amidships.', 'Wheel amidships, ' + by + '.', 'Midships, ' + by + '. Rudder amidships.']);
+    const hard = Math.abs(deg) >= 35;
+    return this.vary('helm', [
+      P + ', ' + by + '.',
+      P + '.',
+      P + ', ' + by + '. Wheel is ' + p + '.',
+      P + '. Wheel is ' + p + ', ' + by + '.',
+      hard ? P + ', ' + by + '. Wheel hard over.' : P + ', ' + by + '. Rudder ' + p + '.',
+    ]);
+  },
+  // AB acknowledges a course to steer
+  steerAck(c, by = 'Captain') {
+    const C = pad(c);
+    return this.vary('steer', ['Steer ' + C + ', ' + by + '.', 'Steer ' + C + '.', 'Steering ' + C + ', ' + by + '.', 'Coming to ' + C + ', ' + by + '.', C + ', ' + by + '. Steer ' + C + '.']);
+  },
+  steadyAck(c, by) {
+    const C = pad(c);
+    return this.vary('steady', ['Steady on ' + C + ', ' + by + '.', 'Steady on ' + C + '.', 'Steady, ' + C + ', ' + by + '.', 'Course ' + C + ', steady.', 'She\'s steady on ' + C + ', ' + by + '.']);
+  },
+  // 3/O repeats the telegraph — once the handle has settled, and only the order it ended on
+  teleAck(label, by = 'Captain', prev) {
+    if (!this._teleT) this._teleFrom = prev;                   // where the handle stood before this burst of orders
     clearTimeout(this._teleT);
-    this._teleT = setTimeout(() => { const o3 = this.byId('o3'); if (o3 && o3.present) this.say('o3', label.charAt(0) + label.slice(1).toLowerCase() + ', ' + by + '. Logged.'); }, 700);
+    this._teleT = setTimeout(() => {
+      this._teleT = null;
+      if (label === this._teleFrom) return;                    // swung back to where it was: nothing new to repeat
+      const o3 = this.byId('o3'); if (!o3 || !o3.present) return;
+      this.say('o3', this.teleAckLine(label, by), false, 'tele');
+    }, 1300);
+  },
+  teleAckLine(label, by) {
+    // split engines are said side by side: "Port half ahead, starboard slow ahead"
+    const l = label.replace(/ \(SEA\)/g, '').toLowerCase().replace(/^(.+) \/ (.+)$/, 'port $1, starboard $2'), L = l.charAt(0).toUpperCase() + l.slice(1);
+    if (label === 'STOP') return this.vary('teleStop', ['Stop engine, ' + by + '.', 'Stop, ' + by + '. Logged.', 'Engine stop, ' + by + '.', 'Stop engine. Engine answering, ' + by + '.', 'Stop it is, ' + by + '.']);
+    const opts = [
+      L + ', ' + by + '.',
+      L + ', ' + by + '. Logged.',
+      L + ' it is, ' + by + '.',
+      L + '. Engine answering, ' + by + '.',
+      L + ', ' + by + ' — in the bell book.',
+    ];
+    if (!label.includes('/')) opts.push('Engine ' + l + ', ' + by + '.');
+    return this.vary('tele', opts);
   },
   updateHelmsman(dt) {
     // AB steering an ordered course (hand steering), human-like
@@ -645,7 +695,7 @@ const CREW = {
     const hs = this.helmState; if (hs.course !== G.abCourse) { hs.course = G.abCourse; hs.trim = 0; }
     if (Math.abs(err) < 6) hs.trim = clamp((hs.trim || 0) + err * 0.05, -5, 5);
     let order = clamp(Math.round(err * 4 - rot * 8 + hs.trim), -20, 20);
-    if (Math.abs(err) < 0.8 && Math.abs(rot) < 1) { if (Math.abs(err) < 0.3) order = Math.round(hs.trim); if (!this._steadyTold) { this._steadyTold = true; this.say('ab', 'Steady on ' + pad(G.abCourse) + ', ' + (G.pilotCon ? 'pilot' : 'Captain') + '.'); } }
+    if (Math.abs(err) < 0.8 && Math.abs(rot) < 1) { if (Math.abs(err) < 0.3) order = Math.round(hs.trim); if (!this._steadyTold) { this._steadyTold = true; this.say('ab', this.steadyAck(G.abCourse, G.pilotCon ? 'pilot' : 'Captain')); } }
     G.helmOrder = order;
   },
 
@@ -673,10 +723,10 @@ const CREW = {
     const L = [];
     if (id === 'ab') {
       L.push({ k: 'ab_wheel', t: 'Take the wheel — hand steering', d: 'AB goes to the steering stand and steers by hand. Required for the pilot.', ok: !this.atHelm(), fn: () => this.abTakeWheel() });
-      L.push({ k: 'ab_course', t: 'Steer a course…', d: 'AB steers and steadies on the ordered heading', input: true, ok: this.atHelm(), fn: (v) => { G.abCourse = wrap360(v); this._steadyTold = false; this.say('ab', 'Steer ' + pad(G.abCourse) + ', Captain.'); } });
+      L.push({ k: 'ab_course', t: 'Steer a course…', d: 'AB steers and steadies on the ordered heading', input: true, ok: this.atHelm(), fn: (v) => { G.abCourse = wrap360(v); this._steadyTold = false; this.say('ab', this.steerAck(G.abCourse)); } });
       L.push({ k: 'ab_steady', t: 'Steady as she goes', d: 'Hold the present heading', ok: this.atHelm(), fn: () => { G.abCourse = Math.round(s.psi / DEG); this._steadyTold = false; this.say('ab', 'Steady as she goes — steady on ' + pad(G.abCourse) + '.'); } });
       for (const [lab, d] of [['Port ten', -10], ['Starboard ten', 10], ['Port twenty', -20], ['Starboard twenty', 20], ['Hard-a-port', -35], ['Hard-a-starboard', 35], ['Midships', 0]]) L.push({ k: 'ab_h' + d, t: lab, d: 'Helm order', ok: this.atHelm(), fn: () => helmOrder(d) });
-      L.push({ k: 'ab_auto', t: 'Back to autopilot', d: 'Engage autopilot on the present heading', ok: G.steering !== 'AUTO', fn: () => { setSteering('AUTO'); this.say('ab', 'Autopilot engaged, heading ' + pad(G.apHeading) + '.'); const ab = this.byId('ab'); ab.setHome('aftC', 0.3, null); ab.goHome(); } });
+      L.push({ k: 'ab_auto', t: 'Back to autopilot', d: 'Engage autopilot on the present heading', ok: G.steering !== 'AUTO', fn: () => { setSteering('AUTO'); this.say('ab', this.vary('auto', ['Autopilot engaged, heading ' + pad(G.apHeading) + '.', 'Autopilot on, Captain. Heading ' + pad(G.apHeading) + '.', 'She\'s on auto, ' + pad(G.apHeading) + '.'])); const ab = this.byId('ab'); ab.setHome('aftC', 0.3, null); ab.goHome(); } });
     }
     if (id === 'co') {
       L.push({ k: 'co_fwd', t: 'Man the forward mooring station', d: 'Go forward with the bosun, prepare lines, stand by both anchors', ok: !F.fwdSent, fn: () => this.sendStation('co', 'fwd') });
@@ -712,7 +762,7 @@ const CREW = {
   },
   abTakeWheel() {
     const ab = this.byId('ab');
-    this.say('ab', 'Going to the wheel, Captain.');
+    this.say('ab', this.vary('toWheel', ['Going to the wheel, Captain.', 'Taking the wheel, Captain.', 'On my way to the wheel.']));
     ab.task = null; ab.setHome('helm', 0, null);
     ab.goTo('helm', () => {
       ab.idleFace = 0; ab.pose = null;

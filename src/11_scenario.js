@@ -65,7 +65,7 @@ const SCN = {
     this.later(28, () => this.say('vts', 'All stations, this is Westerhaven Traffic. Wind south-west, ' + Math.round(s.windSpeed / KN) + ' knots. Flood tide setting north-east, half a knot. Westgeul fairway: one outbound, HANSA EXPRESS. Out.', true));
     UI.updateMission(true);
   },
-  say(id, t, radio) { CREW.say(id, t, radio); },
+  say(id, t, radio, slot) { CREW.say(id, t, radio, slot); },
   flag(k) { G.flags[k] = true; },
   // Delayed events. Pass a function for throw-away chatter, or the name of a TIMED action
   // (plus a JSON-able argument) for anything that changes game state, so saves can restore it.
@@ -216,7 +216,10 @@ const SCN = {
     if (!bi || bi.dc > 600) { this.say(st, st === 'fwd' ? 'Forward: no quay close yet, Captain.' : 'Aft: nothing close, Captain.', true); return; }
     const e = st === 'fwd' ? bi.bow : bi.stern;
     const sp = e.vIn;
-    this.say(st, (st === 'fwd' ? 'Forward: bow ' : 'Aft: stern ') + e.d.toFixed(0) + ' metres off the fenders, ' + (Math.abs(sp) < 0.02 ? 'steady' : sp > 0 ? 'closing ' + (sp * 100).toFixed(0) + ' centimetres per second' : 'opening') + '.', true);
+    const d = e.d.toFixed(0), cm = (sp * 100).toFixed(0), F = st === 'fwd';
+    const head = CREW.vary('dist' + st, F ? ['Forward: bow ' + d + ' metres off the fenders', 'Forward here — ' + d + ' metres to the fenders', 'Forward: ' + d + ' metres off the quay'] : ['Aft: stern ' + d + ' metres off the fenders', 'Aft here — ' + d + ' metres to the fenders', 'Aft: stern ' + d + ' metres off']);
+    const move = Math.abs(sp) < 0.02 ? CREW.vary('distSteady', ['steady', 'holding steady', 'not moving']) : sp > 0 ? CREW.vary('distClose', ['closing ' + cm + ' centimetres per second', 'closing at ' + cm + ' centimetres a second', 'coming in ' + cm + ' centimetres per second']) : CREW.vary('distOpen', ['opening', 'opening up', 'drifting off']);
+    this.say(st, head + ', ' + move + '.', true, 'dist' + st);
   },
   reportPosition() {
     const s = G.ship, rp = routeProgress(s);
@@ -226,7 +229,7 @@ const SCN = {
   reportTraffic() {
     const s = G.ship;
     const l = TRAFFIC.all().map((t) => ({ t, d: Math.hypot(t.x - s.x, t.z - s.z) })).sort((a, b) => a.d - b.d).slice(0, 3);
-    if (!l.length) { this.say('o2', 'No traffic of concern, Captain.'); return; }
+    if (!l.length) { this.say('o2', CREW.vary('noTraffic', ['No traffic of concern, Captain.', 'Nothing of concern on the radar, Captain.', 'All clear around us, Captain.'])); return; }
     this.say('o2', 'Traffic: ' + l.map(({ t, d }) => t.name + ', ' + (d / NM).toFixed(1) + ' miles, bearing ' + pad(wrap360(Math.atan2(t.x - s.x, -(t.z - s.z)) / DEG))).join('; ') + '.');
   },
   checklistReport(who) {
@@ -290,9 +293,9 @@ const SCN = {
       // check her swing early enough – the helmsman meets her with counter-rudder on the new course
       if (Math.abs(left) < Math.max(4, Math.abs(rot) * 0.35) || Math.sign(left) !== Math.sign(G.helmOrder)) {
         const c = this.conTurn; this.conTurn = null; this.conCourseT = G.simT;
-        this.say('pilot', 'Midships… steer ' + pad(c) + '.');
+        this.say('pilot', CREW.vary('piMid', ['Midships… steer ' + pad(c) + '.', 'Midships. Steer ' + pad(c) + '.', 'Okay, midships… and steer ' + pad(c) + '.']));
         G.helmOrder = 0; G.abCourse = c; CREW._steadyTold = false;
-        CREW.say('ab', 'Midships, steer ' + pad(c) + ', pilot.');
+        CREW.say('ab', CREW.vary('midSteer', ['Midships, steer ' + pad(c) + ', pilot.', 'Midships… steer ' + pad(c) + '.', 'Midships, and ' + pad(c) + ', pilot.']));
       }
     } else {
       const off = wrap180(want - (course ?? s.psi / DEG));
@@ -300,12 +303,12 @@ const SCN = {
         if (Math.abs(off) >= 4) {
           const order = Math.sign(off) * clamp(Math.round(Math.abs(off) / 2.5 / 5) * 5, 10, 20);
           this.conTurn = want;
-          this.say('pilot', CREW.helmPhrase(order) + '.');
+          this.say('pilot', CREW.vary('piHelm', [CREW.helmPhrase(order) + '.', CREW.helmPhrase(order) + ', please.', 'Okay, ' + CREW.helmPhrase(order).toLowerCase() + '.']));
           G.helmOrder = order; CREW.helmOrder(order, 'pilot'); G.abCourse = null;
-        } else { G.abCourse = want; this.conCourseT = G.simT; this.say('pilot', 'Steer ' + pad(want) + '.'); CREW.say('ab', 'Steer ' + pad(want) + ', pilot.'); }
+        } else { G.abCourse = want; this.conCourseT = G.simT; this.say('pilot', CREW.vary('piSteer', ['Steer ' + pad(want) + '.', 'Steer ' + pad(want) + ', please.', 'Bring her to ' + pad(want) + '.'])); CREW.say('ab', CREW.steerAck(want, 'pilot')); }
       } else if (Math.abs(off) >= 3 && G.simT - (this.conCourseT ?? -99) > 45) {
         G.abCourse = want; this.conCourseT = G.simT; CREW._steadyTold = true;
-        this.say('pilot', 'Steer ' + pad(want) + '.'); CREW.say('ab', 'Steer ' + pad(want) + ', pilot.');
+        this.say('pilot', CREW.vary('piSteer', ['Steer ' + pad(want) + '.', 'Steer ' + pad(want) + ', please.', 'Bring her to ' + pad(want) + '.'])); CREW.say('ab', CREW.steerAck(want, 'pilot'));
       }
     }
     if (this.conT <= 0) {
@@ -315,7 +318,7 @@ const SCN = {
       let tele = s.tele[0];
       if (kn > target + 1.3 && tele > TELEGRAPH_STOP) tele--;
       else if (kn < target - 1.3 && tele < 8) tele++;
-      if (tele !== s.tele[0]) { this.say('pilot', TELEGRAPH[tele].label.toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) + ', please.'); s.tele = [tele, tele]; AUDIO.telegraph(); G.bellBook.unshift({ t: G.simT, txt: TELEGRAPH[tele].label + ' (pilot)' }); CREW.teleAck(TELEGRAPH[tele].label, 'pilot'); }
+      if (tele !== s.tele[0]) { { const l = TELEGRAPH[tele].label.replace(/ \(SEA\)/, '').toLowerCase(), L = l.charAt(0).toUpperCase() + l.slice(1); this.say('pilot', CREW.vary('piTele', [L + ', please.', L + '.', 'Give me ' + l + ', please.', 'Okay, ' + l + '.', L + ' now.'])); } const prev = TELEGRAPH[s.tele[0]].label; s.tele = [tele, tele]; AUDIO.telegraph(); G.bellBook.unshift({ t: G.simT, txt: TELEGRAPH[tele].label + ' (pilot)' }); CREW.teleAck(TELEGRAPH[tele].label, 'pilot', prev); }
     }
   },
   sendLines(st) {

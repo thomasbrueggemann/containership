@@ -677,6 +677,8 @@ function nfuHold(dir) {
 }
 function teleStep(d, which) {
   const s = G.ship;
+  const teleLabel = () => TELEGRAPH[s.tele[0]].label + (s.tele[0] !== s.tele[1] ? ' / ' + TELEGRAPH[s.tele[1]].label : '');
+  const prev = teleLabel();
   const idx = which === -1 ? [0, 1] : [which];
   for (const i of idx) {
     const n = clamp(s.tele[i] + d, 0, TELEGRAPH.length - 1);
@@ -685,9 +687,9 @@ function teleStep(d, which) {
   }
   if (!G.splitEngines && which !== -1) s.tele[1 - which] = s.tele[which];
   AUDIO.telegraph();
-  const lab = TELEGRAPH[s.tele[0]].label + (s.tele[0] !== s.tele[1] ? ' / ' + TELEGRAPH[s.tele[1]].label : '');
+  const lab = teleLabel();
   G.bellBook.unshift({ t: G.simT, txt: lab });
-  CREW.teleAck(lab);
+  CREW.teleAck(lab, 'Captain', prev);
   SCN.flag('tele');
   // the engines only run astern in manoeuvring (stand-by) mode – say so instead of silently coasting
   if (Math.min(s.tele[0], s.tele[1]) < TELEGRAPH_STOP && s.engineMode !== 'STANDBY') {
