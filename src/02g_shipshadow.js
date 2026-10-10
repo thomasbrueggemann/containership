@@ -35,6 +35,24 @@ const SHSHADOW = {
         }
       }
       return sh;
+    }
+    // 0..1: how much of the sky the sea at p loses to a hull (or the quay wall) beside it – the dark band along a ship's side and in the gap
+    // between ship and quay. A wall of height H blocks the sky over a distance of about its height, so the band is a few metres wide.
+    float shipAO(vec2 p){
+      float ao = 0.0;
+      for (int i = 0; i < 4; i++) {
+        vec4 B0 = uShdBox[4 * i]; if (B0.w <= 0.0) continue;
+        vec4 P = uShdPos[i]; vec2 d = p - P.xy;
+        float R = B0.y + 30.0; if (dot(d, d) > R * R) continue;
+        vec2 f = P.zw, s = vec2(-P.w, P.z);
+        vec2 q = max(abs(vec2(dot(d, f) - B0.x, dot(d, s))) - vec2(B0.y * 0.78, B0.z), 0.0);       // (the bow and stern taper: only the parallel body counts)
+        ao = max(ao, exp(-length(q) / 4.5));
+      }
+      return ao;
+    }
+    float quayAO(vec2 p){                                           // the three quay walls of the basin (see GEO in 03_world.js)
+      if (p.x < -1200.0 || p.x > 1500.0 || p.y < -700.0 || p.y > 760.0) return 0.0;
+      return exp(-min(min(p.y + 700.0, 760.0 - p.y), 1500.0 - p.x) / 3.2) * 0.75;
     }`,
   // boxes in the ship's own frame: [centre offset forward, half length, half width, height]. Registered when a ship is built.
   register(grp, boxes) { grp.userData.shd = boxes; this.groups.push(grp); },

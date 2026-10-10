@@ -336,6 +336,7 @@ function buildOcean() {
         // water piled against the bow is thin: it turns turquoise (both scale with the light: by night they all but vanish)
         float shLight = clamp(uSunI / 3.0, 0.0, 1.2) * (0.25 + 0.75 * sunBody);
         body += (vec3(0.05, 0.16, 0.15) * clamp(shAer * 0.6, 0.0, 1.0) + vec3(0.02, 0.06, 0.055) * clamp(shH * 0.5, 0.0, 1.0)) * shLight;
+        float occ = max(shipAO(p), quayAO(p)); body *= 1.0 - 0.45 * occ; refl *= 1.0 - 0.4 * occ;      // (the gap between ship and quay, the lee of a hull: darker)
         vec3 col = mix(body, refl, clamp(F, 0.0, 1.0));
         float rough = min(mix(1500.0, 70.0, smoothstep(120.0, 7000.0, dist)), 1.0 / (0.0006 + lost * 1.6));
         float sd = max(dot(R, uSunDir), 0.0);
