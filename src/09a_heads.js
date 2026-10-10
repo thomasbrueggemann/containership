@@ -79,7 +79,7 @@ const HEADS = {
     const eL = eye(0.426), eR = eye(0.574);
     // the eye in the +x half of the scan
     this.eyes = [eL, eR];
-    const a = 0.3, b = 0.085, yOff = -0.03;
+    const a = 0.31, b = 0.108, yOff = -0.025;
     this.eyeShape = { a, b, yOff };
     const inOpening = (x, y, z) => {
       for (const e of this.eyes) {
@@ -236,7 +236,7 @@ const HEADS = {
         pos.push(x + N.getX(i) * t, y + N.getY(i) * t, z + N.getZ(i) * t);
         uv.push(this.U.getX(i), this.U.getY(i));
         // alpha fades across the hairline; alphaTest turns it into a smooth cut edge
-        col.push(1, 1, 1, smooth(-0.2, 0.35, d));
+        col.push(1, 1, 1, smooth(-0.07, 0.17, d));
         map.set(i, map.size);
       }
       out.push(map.get(i));
