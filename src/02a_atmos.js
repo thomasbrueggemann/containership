@@ -216,11 +216,12 @@ const ATMOS = {
       uCover: { value: P.cloud }, uWind: { value: new THREE.Vector2(9, 4) }, uDens: { value: P.fogD }, uHorizon: { value: new THREE.Color(P.fog) },
       uSunDisc: { value: night ? 0 : 1 }, uMoon: { value: night ? 1 : 0 }, uSteps: { value: steps }, uLSteps: { value: lsteps },
       tClouds: { value: null }, uRes: { value: new THREE.Vector2(1, 1) },
+      uPortPos: { value: new THREE.Vector2(150, -1100) }, uPortGlow: { value: night ? 1 : 0 },       // the terminal's lights on the underside of the clouds over it
     };
     const vertexShader = `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vec4 p = projectionMatrix * viewMatrix * w; gl_Position = p.xyww; }`;
     const fragmentShader = `
         precision highp sampler3D;
-        uniform sampler3D tNoise; uniform float uTime, uCover, uDens, uSunDisc, uMoon, uSteps, uLSteps; uniform vec3 uSunDir, uLightDir, uSunRad, uAmb, uHorizon; uniform vec2 uWind;
+        uniform sampler3D tNoise; uniform float uTime, uCover, uDens, uSunDisc, uMoon, uSteps, uLSteps, uPortGlow; uniform vec2 uPortPos; uniform vec3 uSunDir, uLightDir, uSunRad, uAmb, uHorizon; uniform vec2 uWind;
         #ifdef PASS_SKY
           uniform sampler2D tClouds; uniform vec2 uRes;
         #endif
@@ -283,6 +284,10 @@ const ATMOS = {
                 float powder = 1.0 - exp(-d * 2.2);
                 vec3 lit = sunCol * (Tl * ph * mix(1.0, powder * 2.0, 0.55) + exp(-ls * 0.012 * 0.25) * 0.12 * hg(cosT * 0.5, 0.0) * 4.0);
                 vec3 amb = uAmb * mix(0.45, 1.3, hf);
+                if (uPortGlow > 0.0) {                       // sodium-orange light from the terminal's floodlights scattered back from the cloud base
+                  float hd = length(p.xz - uPortPos);
+                  amb += vec3(1.0, 0.56, 0.24) * (0.085 * exp(-hd / 6500.0) * (1.0 - 0.55 * hf) * (0.35 + 0.65 * powder)) * uPortGlow;
+                }
                 float ft = 1.0 - exp(-(t * uDens) * (t * uDens));
                 vec3 sc = mix(lit + amb, uHorizon * 0.9, ft);
                 float a = 1.0 - exp(-sig);

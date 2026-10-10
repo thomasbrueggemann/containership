@@ -93,7 +93,7 @@ The picture is built for plausibility rather than looks alone: everything is lit
 - **Night**: the ~60 floodlight masts, crane lights and the ship's deck lights (console button) are analytic lights evaluated for the 10 nearest
   lamps per pixel; point lights burn out and bloom. Vessels under way show their COLREG lights (`04a_navlights.js`): masthead lights, green and red
   sidelights and the stern light, each drawn only inside its legal sector (so a ship seen end-on shows red and green, from the side only one of them),
-  kept a visible point at miles and faded beyond the legal range of its class; ships alongside show none.
+  kept a visible point at miles and faded beyond the legal range of its class; ships alongside show none. At night the terminal's floodlights also warm the underside of the clouds over the port (light pollution, in the cloud march).
 - **Shadows**: one sun shadow map fitted to the bridge, or to the whole ship in the external view, snapped to texels so shadows do not crawl.
   The sea is a shader, not a lit mesh, so the shadow map never reaches it; instead (`02g_shipshadow.js`) each ship near the camera is reduced to
   four boxes (hull, stacks, accommodation, funnel) and every sea pixel tests whether the ray to the sun runs through one of them, with a soft
