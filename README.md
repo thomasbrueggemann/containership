@@ -60,7 +60,7 @@ The picture is built for plausibility rather than looks alone: everything is lit
   scale in steps, AO last because it is nearly free) and climbs back after a few calm seconds; on a Retina screen it starts one step down, and
   the HDR target is capped at ~3.2 MP, so the picture is upscaled with sharpening. *High* uses all of it, *Balanced* drops the AO and halves the
   MSAA, *Low* renders straight to the canvas as before. URL flags for debugging: `post=off`, `dynres=off`, `clouds=full`, `grunge=off`,
-  `glassdirt=off`, `lod=off`, `shafts=off`, `farshadow=off`, `gpuprof=1`.
+  `glassdirt=off`, `lod=off`, `shafts=off`, `farshadow=off`, `cloudacc=off`, `gpuprof=1`.
 - **Culling** (`02e_lod.js`): the scene is ~2 200 draw calls a frame (sun shadow, mirrored view of the sea, main view), and on a high-DPI screen
   that, not the pixels, is the cost. Every mesh is put on a layer by how large it appears – drawn and mirrored, drawn but not mirrored (too
   small to register in the rippled reflection), or not drawn (under ¾ of a pixel) – with thresholds that follow the field of view, so
