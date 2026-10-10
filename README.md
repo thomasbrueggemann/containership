@@ -40,7 +40,7 @@ output and is not committed; run `node build.mjs` locally before serving.
 | File | Contents |
 | --- | --- |
 | `src/07_physics.js` | 3-DOF manoeuvring model (Clarke hull derivatives, MMG-style twin rudders in prop wash, cross-flow drag, bow thrusters, tugs, wind, current, squat/shallow water, fenders, mooring lines) |
-| `src/02_env.js`, `src/02a_atmos.js`, `src/02b_post.js`, `src/02c_shipwaves.js`, `src/02d_bowfoam.js`, `src/02e_lod.js`, `src/02f_farshadow.js`, `src/02g_shipshadow.js` | Sky & sea (see *Rendering*), sky-coloured fog, volumetric clouds, sun/moon/stars, floodlight and exhaust systems, HDR post-processing, bow waves & Kelvin wakes, screen-size culling, the port's shadows, ship shadows on the water |
+| `src/02_env.js`, `src/02a_atmos.js`, `src/02b_post.js`, `src/02c_shipwaves.js`, `src/02d_bowfoam.js`, `src/02e_lod.js`, `src/02f_farshadow.js`, `src/02g_shipshadow.js`, `src/04a_navlights.js` | Sky & sea (see *Rendering*), sky-coloured fog, volumetric clouds, sun/moon/stars, floodlight and exhaust systems, HDR post-processing, bow waves & Kelvin wakes, screen-size culling, the port's shadows, ship shadows on the water, navigation lights |
 | `src/03_world.js` | Bathymetry, breakwaters, quays with fenders/bollards, STS & ASC cranes, container yard, buoys (IALA A), turbines, city |
 | `src/04_ship.js` | Lofted hull with painted livery, SOLAS-sightline container stowage, deckhouse, funnel, tugs, pilot boat |
 | `src/05_bridge.js` | Wheelhouse, integrated bridge console, overhead panel, wing consoles with glass floor, all clickable controls |
@@ -91,7 +91,9 @@ The picture is built for plausibility rather than looks alone: everything is lit
   asphalt and the quay wall (slabs with their own tone, cracks, oil, truck lanes – colour, height and roughness drawn together so they agree);
   bridge glass collects salt spray that the wipers clear.
 - **Night**: the ~60 floodlight masts, crane lights and the ship's deck lights (console button) are analytic lights evaluated for the 10 nearest
-  lamps per pixel; point lights burn out and bloom.
+  lamps per pixel; point lights burn out and bloom. Vessels under way show their COLREG lights (`04a_navlights.js`): masthead lights, green and red
+  sidelights and the stern light, each drawn only inside its legal sector (so a ship seen end-on shows red and green, from the side only one of them),
+  kept a visible point at miles and faded beyond the legal range of its class; ships alongside show none.
 - **Shadows**: one sun shadow map fitted to the bridge, or to the whole ship in the external view, snapped to texels so shadows do not crawl.
   The sea is a shader, not a lit mesh, so the shadow map never reaches it; instead (`02g_shipshadow.js`) each ship near the camera is reduced to
   four boxes (hull, stacks, accommodation, funnel) and every sea pixel tests whether the ray to the sun runs through one of them, with a soft

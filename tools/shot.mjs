@@ -4,6 +4,7 @@
 // e.g.  node tools/shot.mjs /tmp/shots "tod=night&sea=rough" bridge,orbit,water 14 1600x900
 // Env:  SHOT_CONSOLE=1 prints console output / exceptions;  SHOT_JS="..." evaluated once before the presets;
 //       SHOT_PERF=1 also prints the average frame time (ms) of 90 frames after each shot,
+//       SHOT_URL=https://… shoots a deployed build instead of the local one (e.g. the GitHub Pages site),
 //       SHOT_AFTER="..." is evaluated after each preset has been placed (before the shot) and its result printed,
 //       SHOT_TOGGLE="..." (+ SHOT_TOGGLE_BACK) shoots every view twice, with that switch thrown for the second shot (<name>_b.png).
 import http from 'http';
@@ -110,6 +111,16 @@ const PRESETS = {
   pilotB: `freecamShip(window.__side * 44, 7, 4, window.__side * 33.3, 10)`,
   pilotTop: `freecamShip(window.__side * 36, 34, 18, window.__side * 33.3, 10)`,
   vesselRPA: `vessel('RPA 4', 3)`,
+  // traffic vessels at long range (a night bridge view is mostly their lights): 1 / 2.5 / 5 km on the beam and fine on the bow
+  hansa2k: `vessel('HANSA EXPRESS', 6.5)`,
+  // the own ship's lights from ahead (dead ahead and a little to starboard) at 300 m / 2.5 km, and from astern and abeam (ship-local cameras)
+  lightsAhead300: `freecamShip(0, 22, -520, 0, -190)`,
+  lightsStbd300: `freecamShip(110, 24, -440, 0, -150)`,
+  lightsAhead2k: `freecamShip(0, 24, -2700, 0, -190)`,
+  lightsStbd2k: `freecamShip(300, 24, -2700, 0, -190)`,
+  lightsAstern: `freecamShip(0, 24, 650, 0, 190)`,
+  lightsBeam: `freecamShip(900, 24, -50, 0, -50)`,
+  hansa4k: `vessel('HANSA EXPRESS', 13)`,
   vesselYacht: `vessel('BLUE WIND', 3)`,
   vesselZV: `vessel('UK-47 ZEEVAART', 2.4)`,
   portTop: `freecam(-500, 750, -300, -500, 0, -950)`,
@@ -221,7 +232,7 @@ try {
   await send('Page.enable');
   if (CONSOLE) { await send('Runtime.enable'); await send('Log.enable'); }
   await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: +(process.env.SHOT_DPR || 1), mobile: false });
-  await send('Page.navigate', { url: `http://127.0.0.1:${port}/?autostart&voice=off${process.env.SHOT_DYN ? '' : '&dynres=off'}${query ? '&' + query : ''}` });
+  await send('Page.navigate', { url: `${process.env.SHOT_URL || `http://127.0.0.1:${port}/`}?autostart&voice=off${process.env.SHOT_DYN ? '' : '&dynres=off'}${query ? '&' + query : ''}` });
   await sleep(+waitSec * 1000);
   await ev(HELPERS);
   if (process.env.SHOT_JS) { const r = await ev(process.env.SHOT_JS); if (r !== undefined && r !== true) console.log('SHOT_JS ->', JSON.stringify(r)); }

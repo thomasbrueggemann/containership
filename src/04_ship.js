@@ -329,6 +329,12 @@ function buildContainerShip(o) {
       B.box(white, 3, 9, 3, 0, dhTop + 8, bridgeZ);   // radar mast
       B.box(dark, 6, 0.3, 0.5, 0, dhTop + 12.6, bridgeZ);
     }
+    if (o.ownBridge) {                                        // the radar mast on the bridge roof (the generic bridge above has its own)
+      const mz = BRIDGE_Z + 3, mb = dhTop + 4.1;
+      B.cyl(white, 0.2, 0.34, 11, 0, mb + 5.5, mz, 8);
+      B.box(dark, 7.2, 0.26, 0.5, 0, mb + 8.2, mz); B.box(dark, 4.2, 0.22, 0.4, 0, mb + 6.1, mz); B.box(steel, 1.6, 0.9, 0.9, 0, mb + 9.2, mz);
+      for (const [x, h, z] of [[-1.6, 3.2, -1.2], [1.4, 2.4, -0.9], [0.6, 4.4, 1.2], [-0.9, 1.8, 1.0]]) B.cyl(steel, 0.03, 0.03, h, x, mb + h / 2, mz + z, 5);
+    }
     // lifeboats (orange, enclosed)
     for (const sx of [-1, 1]) {
       const lb = new THREE.CapsuleGeometry(1.6, 6.5, 4, 10); lb.rotateX(Math.PI / 2); lb.scale(1, 0.85, 1);
@@ -362,6 +368,11 @@ function buildContainerShip(o) {
     fl.position.set(0, o.D + 6.1, zOf(0.004) + 1.2); fl.rotation.y = Math.PI / 2;
     grp.add(fl); grp.userData.flag = fl;
   }
+  if (!o.moored && !o.noBridge) {                             // navigation lights: forward masthead on the foremast, the higher one aft on the bridge, sidelights at the wing ends, stern light
+    const wx = o.ownBridge ? BR.halfW + 0.35 : o.B / 2 + 0.7, wy = o.ownBridge ? dhTop + 1.7 : dhTop + 4.3, wz = o.ownBridge ? BRIDGE_Z - 4.2 : bridgeZ - 8.5;
+    NAVLIGHTS.attach(grp, [['mast', 0, o.D + o.fc + 14.4, zOf(0.975), 1.6], ['mast', 0, o.ownBridge ? dhTop + 4.1 + 11.4 : dhTop + 13.4, o.ownBridge ? BRIDGE_Z + 3 : bridgeZ, 1.8],
+      ['stbd', wx, wy, wz, 1.4], ['port', -wx, wy, wz, 1.4], ['stern', 0, o.D + 4.4, zOf(0.006), 1.2]]);
+  }
   grp.userData.o = o;
   grp.userData.bridgeZ = bridgeZ; grp.userData.funnelZ = funnelZ; grp.userData.eyeY = eyeY;
   grp.userData.containers = cont;
@@ -393,7 +404,7 @@ function buildTanker(o) {
   B.box(new THREE.MeshStandardMaterial({ color: 0x2a2f33 }), 7, 12, 9, 0, o.D + 20, o.L / 2 - 16);
   B.cyl(white, 0.4, 0.5, 14, 0, o.D + o.fc + 7, -o.L / 2 + 10, 8);
   B.build(grp, { receive: true });
-  if (ENV.night) { glowSprite(0xfff3dd, 14, grp, 0, o.D + 16, -o.L / 2 + 10, '255,240,220'); glowSprite(0xfff3dd, 14, grp, 0, o.D + 26, o.L / 2 - 16, '255,240,220'); }
+  NAVLIGHTS.attach(grp, [['all', 0, o.D + 16, -o.L / 2 + 10, 1.8], ['all', 0, o.D + 26, o.L / 2 - 16, 1.8]]);          // anchor lights, forward and (higher) aft
   SHSHADOW.register(grp, [[0, o.L * 0.47, o.B * 0.47, o.D + 1.5], [-(o.L / 2 - 26), 9, o.B * 0.4, o.D + 19], null, null]);
   return grp;
 }
@@ -468,8 +479,7 @@ function buildTug(name, hullCol = '#b3261e') {
   B.cyl(black, 0.18, 0.18, 1.8, 0, o.D + o.fc + 1.1, -13.4, 8, 0, 0, Math.PI / 2);
   deckRails(B, grey, o);
   B.build(g, { cast: true, dynamic: true });
-  glowSprite(0xffffff, 3, g, 0, ry + 3.1, -1.4);
-  glowSprite(0x20ff60, 1.8, g, 3.45, wy + 1.35, -3.5, '40,255,90'); glowSprite(0xff2020, 1.8, g, -3.45, wy + 1.35, -3.5, '255,40,30');
+  NAVLIGHTS.attach(g, [['mast', 0, ry + 3.1, -1.4, 1.2], ['stbd', 3.45, wy + 1.35, -3.5, 0.9], ['port', -3.45, wy + 1.35, -3.5, 0.9], ['stern', 0, y0 + 3.4, 15.9, 0.9]], false);
   return g;
 }
 
@@ -510,6 +520,6 @@ function buildPilotBoat() {
   B.build(g, { dynamic: true, cast: true });
   const fl = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.9), new THREE.MeshStandardMaterial({ map: stripesTexture('#ffffff', '#c8102e', 2, true), side: THREE.DoubleSide }));
   fl.position.set(0, o.D + 4.6, 2.5); fl.rotation.y = Math.PI / 2; g.add(fl);
-  glowSprite(0xffffff, 2.4, g, 0, o.D + 5.1, 2); glowSprite(0xff2020, 2.4, g, 0, o.D + 4.7, 2, '255,40,30');
+  NAVLIGHTS.attach(g, [['all', 0, o.D + 5.1, 2, 1.0], ['allRed', 0, o.D + 4.7, 2, 1.0], ['stbd', 2.05, y0 + 1.7, -1.9, 0.8], ['port', -2.05, y0 + 1.7, -1.9, 0.8], ['stern', 0, y0 + 2.6, 8.6, 0.8]], false);        // white over red all-round: pilot vessel
   return g;
 }

@@ -172,6 +172,7 @@ const TRAFFIC = {
     this.add({ name: 'BLUE WIND', grp: yt, L: 14, B: 4, x: -6000, z: 3800, psi: 250 * DEG, speed: 5 * KN, wander: { x0: -9000, x1: -3500, z0: 3200, z1: 5200 }, wake: 2 });
   },
   add(o) {
+    o.grp.userData.navOn = () => o.sog > 0.4 || (o.dep && o.dep.phase !== 'moored');       // navigation lights burn once she is under way (a ship alongside shows none)
     o.active = !o.trigger; o.wpi = 0; o.cog = o.psi; o.cruise = o.speed; o.sog = o.active && !o.dep ? o.speed : 0;
     o.grp.visible = o.active;
     o.grp.position.set(o.x, 0, o.z); o.grp.rotation.y = -o.psi;
@@ -314,7 +315,7 @@ function buildSmallVessel(name, hullCol, L, B, stripe) {
   if (kind === 'yacht') b.add(roundBox(B * 0.5, 0.25, L * 0.12, 0.1), plainMat(0x2b6cb0), MX(0, y0 + 0.3, L * 0.3));      // sun pads on the aft deck
   deckRails(b, grey, o, kind === 'yacht' ? 2 : 3);
   b.build(g, { dynamic: true, cast: false });
-  glowSprite(0xffffff, 3, g, 0, top + mh, mz);
+  NAVLIGHTS.attach(g, [['mast', 0, top + mh, mz, 1.1], ['stbd', hw + 0.15, top - 0.3, cz - hd + 0.4, 0.8], ['port', -hw - 0.15, top - 0.3, cz - hd + 0.4, 0.8], ['stern', 0, y0 + 1.7, L / 2 - 1.2, 0.8]], false);
   return g;
 }
 

@@ -651,16 +651,16 @@ async function buildWorld(progress) {
   await progress(0.78, 'Mooring ships at the terminal');
 
   // ---------- ships already alongside
-  const shipA = buildContainerShip({ L: 366, B: 51, T: 14, D: 13, hull: '#1b1c20', boot: '#7a2320', name: 'NORDIC STAR', deckhouse: 0.62, funnel: 0.84, tiers: 8, seed: 5, style: 'generic', detail: 1 });
+  const shipA = buildContainerShip({ L: 366, B: 51, T: 14, D: 13, hull: '#1b1c20', boot: '#7a2320', name: 'NORDIC STAR', moored: true, deckhouse: 0.62, funnel: 0.84, tiers: 8, seed: 5, style: 'generic', detail: 1 });
   shipA.position.set(-800, 0, -700 + FENDER + 25.5); shipA.rotation.y = -Math.PI / 2; root.add(shipA);
   WORLD.staticShips.push({ x: -800, z: -700 + FENDER + 25.5, psi: Math.PI / 2, L: 366, B: 51, name: 'NORDIC STAR' });
-  const shipB = buildContainerShip({ L: 300, B: 48, T: 13, D: 12, hull: '#8f1c1c', boot: '#3a1210', name: 'CORAL PRINCESS', deckhouse: 0.8, funnel: 0.8, tiers: 7, seed: 9, style: 'generic', detail: 1 });
+  const shipB = buildContainerShip({ L: 300, B: 48, T: 13, D: 12, hull: '#8f1c1c', boot: '#3a1210', name: 'CORAL PRINCESS', moored: true, deckhouse: 0.8, funnel: 0.8, tiers: 7, seed: 9, style: 'generic', detail: 1 });
   shipB.position.set(1500 - FENDER - 24, 0, -50); shipB.rotation.y = 0; root.add(shipB);
   WORLD.staticShips.push({ x: 1500 - FENDER - 24, z: -50, psi: 0, L: 300, B: 48, name: 'CORAL PRINCESS' });
-  const shipC = buildContainerShip({ L: 294, B: 40, T: 12, D: 12, hull: '#223a5e', boot: '#7a2320', name: 'ELBE TRADER', deckhouse: 0.78, funnel: 0.78, tiers: 7, seed: 13, style: 'maersk2', detail: 1 });
+  const shipC = buildContainerShip({ L: 294, B: 40, T: 12, D: 12, hull: '#223a5e', boot: '#7a2320', name: 'ELBE TRADER', moored: true, deckhouse: 0.78, funnel: 0.78, tiers: 7, seed: 13, style: 'maersk2', detail: 1 });
   shipC.position.set(1080, 0, -700 + FENDER + 20); shipC.rotation.y = Math.PI / 2; root.add(shipC);
   WORLD.staticShips.push({ x: 1080, z: -700 + FENDER + 20, psi: 3 * Math.PI / 2, L: 294, B: 40, name: 'ELBE TRADER' });
-  const feeder = buildContainerShip({ L: 172, B: 27, T: 9, D: 8, hull: '#26603f', boot: '#6e1f1c', name: 'BALTIC FEEDER', deckhouse: 0.86, funnel: 0.86, tiers: 4, seed: 21, style: 'generic', detail: 1 });
+  const feeder = buildContainerShip({ L: 172, B: 27, T: 9, D: 8, hull: '#26603f', boot: '#6e1f1c', name: 'BALTIC FEEDER', moored: true, deckhouse: 0.86, funnel: 0.86, tiers: 4, seed: 21, style: 'generic', detail: 1 });
   feeder.position.set(250, 0, 760 - FENDER - 13.5); feeder.rotation.y = -Math.PI / 2; root.add(feeder);
   WORLD.staticShips.push({ x: 250, z: 760 - FENDER - 13.5, psi: Math.PI / 2, L: 172, B: 27, name: 'BALTIC FEEDER' });
   // anchored bulk carriers / tankers
