@@ -71,6 +71,15 @@ async function runCase(tod, quality, extra = '') {
     if (portView?.err) problems.push(`GL error ${portView.err} in the port view`);
     if (portView?.far && !(portView.far.baked && portView.far.w === 1)) problems.push('far shadows did not come up in the port: ' + JSON.stringify(portView.far));
     info.port = portView && (portView.far ? 'far shadows on' : 'no far shadows');
+    // scenario visuals: the pilot ladder goes over the side when rigged, the mooring lines go out when made fast (and survive a save / restore)
+    const scn = await ev(`(() => { const G = __dbg.G, S = __dbg.SCN; G.flags.leeSide = G.flags.leeSide || 'STBD'; S.rigLadder(); __dbg.run(170, 0.25); __dbg.frame(3, 1 / 30);
+      const L = G.shipGroup.userData.ladders, lad = G.flags.ladder && L && L[G.flags.leeSide].visible && !L[G.flags.leeSide === 'STBD' ? 'PORT' : 'STBD'].visible;
+      S.makeFast('fwd', 'PORT'); S.makeFast('aft', 'PORT'); __dbg.frame(3, 1 / 30); const n = S.lineMeshes.length; G.flags.ladder = false; G.flags.linesFwd = G.flags.linesAft = false;
+      S.clearLines(); __dbg.frame(2, 1 / 30); return { lad, n, left: S.lineMeshes.length, err: __dbg.renderer.getContext().getError() }; })()`);
+    if (!scn?.lad) problems.push('pilot ladder not shown when rigged: ' + JSON.stringify(scn));
+    if (scn?.n !== 8 || scn?.left !== 0) problems.push('mooring lines: ' + JSON.stringify(scn));
+    if (scn?.err) problems.push('GL error ' + scn.err + ' after the scenario visuals');
+    info.scn = scn && `ladder ${scn.lad ? 'ok' : 'MISSING'}, ${scn.n} lines`;
     // save → snapshot compare → restore into the same session
     const sv = await ev(`(() => { const s = __dbg.G.ship; const before = [s.x, s.z, s.psi, s.u]; const ok = __dbg.SAVE.save(false); const list = __dbg.SAVE.list(); if (!ok || !list.length) return { ok: false }; __dbg.SAVE.apply(list[0]); __dbg.frame(5, 1 / 30); const after = [s.x, s.z, s.psi, s.u]; return { ok: true, d: Math.hypot(before[0] - after[0], before[1] - after[1]) }; })()`);
     if (!sv?.ok) problems.push('save failed'); else if (sv.d > 5) problems.push('restore moved the ship by ' + sv.d.toFixed(1) + ' m');
