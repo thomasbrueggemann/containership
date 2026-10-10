@@ -523,6 +523,16 @@ function ropeTexture() {
   return { map, normal };
 }
 
+// Louvred ventilation grille in a painted frame (engine casing, deckhouse): dark slats with a lit upper edge and a shadowed lower one.
+function louvreTexture() {
+  const N = 128, c = makeCanvas(N, N), x = c.getContext('2d');
+  x.fillStyle = '#2a2f33'; x.fillRect(0, 0, N, N);
+  for (let y = 6; y < N - 6; y += 7) { x.fillStyle = '#6f777d'; x.fillRect(6, y, N - 12, 2.5); x.fillStyle = '#171a1c'; x.fillRect(6, y + 3.5, N - 12, 3); }
+  x.strokeStyle = '#d9dcda'; x.lineWidth = 7; x.strokeRect(3.5, 3.5, N - 7, N - 7);
+  x.strokeStyle = 'rgba(0,0,0,0.25)'; x.lineWidth = 2; x.strokeRect(8, 8, N - 16, N - 16);
+  return canvasTexture(c, { aniso: 8 });
+}
+
 // Oil-tank shell: courses of welded plates – a tile is one plate wide (8 m) and three courses high (7.2 m), the vertical welds staggered by
 // half a plate from one course to the next. Plate-to-plate tone, weld seams in colour and height (→ normal map), rust streaks running
 // down from the welds. UVs are laid out in tile units by the caller (tankGeo).

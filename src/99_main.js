@@ -22,6 +22,7 @@ function setupOwnShip() {
   g.rotation.order = 'YXZ';
   scene.add(g);
   G.shipGroup = g;
+  g.userData.ladders = buildPilotLadders(g, OWN);          // pilot ladders, one per side (shown while rigged, see updateShipVisual)
   // wakes & foam
   G.wake = new Wake({ width: 24, every: 1.5, life: 330, spread: 0.3, max: 170 });
   G.foam = {
@@ -33,9 +34,13 @@ function setupOwnShip() {
     const fz = g.userData.bridgeZ - 12;                                                  // front face of the accommodation block
     for (const x of [-22, -9, 9, 22]) LAMPS.add(x, 36, fz, { follow: g, local: [x, 36, fz], ldir: [-x * 0.006, -0.42, -0.9], col: [0.95, 0.92, 0.85], power: 15, range: 190, cone: 0.78, on: () => G.deckLights });
     for (const z of [g.userData.funnelZ + 14, g.userData.funnelZ + 60]) LAMPS.add(0, 30, z, { follow: g, local: [0, 30, z], ldir: [0, -0.5, 0.86], col: [0.95, 0.92, 0.85], power: 10, range: 120, cone: 0.7, on: () => G.deckLights });
+    for (const [sd, nm] of [[1, 'STBD'], [-1, 'PORT']]) LAMPS.add(sd * (OWN.B / 2 + 1), OWN.D + 3, 10, { follow: g, local: [sd * (OWN.B / 2 + 1.2), OWN.D + 3, 10], ldir: [sd * 0.55, -0.82, 0], col: [1, 0.95, 0.82], power: 5, range: 45, cone: 0.45, on: () => ladderOut(nm) });      // the light on the pilot ladder
   }
   G.track = [];
 }
+
+// the pilot ladder hangs over the lee side from the moment it is rigged until the pilot is on the bridge
+const ladderOut = (side) => !!(G.flags.ladder && !G.flags.pilotOnBridge && G.flags.leeSide === side);
 
 function controlStep(h) {
   const s = G.ship;
@@ -73,6 +78,7 @@ function updateShipVisual(dt) {
   g.position.set(s.x, -s.squat * 0.6 + heave * 0.85, s.z);
   g.rotation.set(pitch, -s.psi, roll, 'YXZ');
   if (g.userData.flag) g.userData.flag.rotation.y = Math.PI / 2 + Math.sin(t * 3) * 0.2;
+  { const L = g.userData.ladders; if (L) { L.STBD.visible = ladderOut('STBD'); L.PORT.visible = ladderOut('PORT'); } }
   // funnel smoke: puffs stay behind in the air, so the ship leaves a drifting trail
   if (!G.paused || G.exhaust.age.some((a) => a >= 0)) {
     const ex = G.exhaust, fz = g.userData.funnelZ, load = clamp(((Math.abs(s.rpm[0]) + Math.abs(s.rpm[1])) / 2) / 66, 0, 1.2);

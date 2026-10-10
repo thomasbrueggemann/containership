@@ -352,6 +352,29 @@ function buildContainerShip(o) {
     x.fillStyle = '#42b0d5'; x.fillRect(0, 0, 512, 512); drawStar(x, 256, 250, 150, '#fff');
     fMat.map = canvasTexture(c); fMat.color.set(0xffffff);
   }
+  {                                                                // detail of the engine casing: ribs, vent grilles, doors, platforms with rails, an external stair
+    const cw = (fW + 6) / 2, ch = fTop - o.D - 12, cd = 11, y0 = o.D, louv = new THREE.MeshStandardMaterial({ map: louvreTexture(), roughness: 0.55, metalness: 0.2 });
+    const doorM = new THREE.MeshStandardMaterial({ color: 0x5d666c, roughness: 0.5, metalness: 0.3 }), rail = new THREE.MeshStandardMaterial({ color: 0xaeb4b8, roughness: 0.45, metalness: 0.55 });
+    for (const sx of [-1, 1]) for (let k = 0; k * 2.75 < 2 * cd - 1; k++) B.box(white, 0.14, ch, 0.28, sx * (cw + 0.07), y0 + ch / 2, funnelZ - cd + 1.4 + k * 2.75);        // stiffener ribs, sides
+    for (const sz of [-1, 1]) for (let k = 0; k * 2.75 < 2 * cw - 1; k++) B.box(white, 0.28, ch, 0.14, -cw + 1.4 + k * 2.75, y0 + ch / 2, funnelZ + sz * (cd + 0.07));           // …forward and aft
+    for (const sx of [-1, 1]) for (const [gy, gz, gw] of [[y0 + 5.0, -4.5, 5], [y0 + 5.0, 4.5, 5], [y0 + 12, -4.5, 5], [y0 + 12, 4.5, 5], [y0 + 18.5, 0, 7]]) if (gy + 1.6 < y0 + ch) B.add(new THREE.PlaneGeometry(gw, 2.6), louv, MX(sx * (cw + 0.16), gy, funnelZ + gz, 0, sx * Math.PI / 2, 0));
+    for (const sz of [-1, 1]) for (const gx of [-5.5, 5.5]) B.add(new THREE.PlaneGeometry(4.6, 2.6), louv, MX(gx, y0 + 7.5, funnelZ + sz * (cd + 0.16), 0, sz < 0 ? Math.PI : 0, 0));
+    for (const sx of [-1, 1]) for (const [dy, dz] of [[y0 + 1.15, 8.2], [y0 + 7.55, -8.2], [y0 + 13.95, 8.2]]) { B.box(doorM, 0.1, 2.1, 1.05, sx * (cw + 0.1), dy, funnelZ + dz); B.box(steel, 0.14, 0.05, 0.3, sx * (cw + 0.2), dy, funnelZ + dz + 0.3); }
+    for (let lv = 1; lv <= 3; lv++) {                                      // a platform ledge every 6.4 m with a handrail round it
+      const py = y0 + 6.4 * lv; if (py > y0 + ch - 1) break;
+      B.box(white, 2 * cw + 1.2, 0.2, 2 * cd + 1.2, 0, py, funnelZ);
+      for (const [hw, hd] of [[cw + 0.55, cd + 0.55]]) {
+        for (const sx of [-1, 1]) { B.box(rail, 0.05, 0.05, 2 * hd, sx * hw, py + 1.1, funnelZ); B.box(rail, 0.04, 0.04, 2 * hd, sx * hw, py + 0.55, funnelZ); for (let z = -hd; z <= hd + 0.01; z += 1.7) B.box(rail, 0.05, 1.1, 0.05, sx * hw, py + 0.55, funnelZ + z); }
+        for (const sz of [-1, 1]) { B.box(rail, 2 * hw, 0.05, 0.05, 0, py + 1.1, funnelZ + sz * hd); B.box(rail, 2 * hw, 0.04, 0.04, 0, py + 0.55, funnelZ + sz * hd); for (let x = -hw + 1.7; x < hw - 0.01; x += 1.7) B.box(rail, 0.05, 1.1, 0.05, x, py + 0.55, funnelZ + sz * hd); }
+      }
+    }
+    for (let lv = 0; lv < 3; lv++) {                                      // the stair up the port side, flight by flight
+      const ya = y0 + 6.4 * lv, yb = ya + 6.4, up = lv % 2 ? -1 : 1, za = funnelZ - up * 8.5, zb = funnelZ + up * 8.5;
+      if (yb > y0 + ch + 0.1) break;
+      B.beam(steel, new THREE.Vector3(-cw - 1.3, ya + 0.2, za), new THREE.Vector3(-cw - 1.3, yb + 0.2, zb), 1.0, 0.12);
+      for (const dx of [-0.5, 0.5]) B.beam(rail, new THREE.Vector3(-cw - 1.3 + dx, ya + 1.2, za), new THREE.Vector3(-cw - 1.3 + dx, yb + 1.2, zb), 0.05, 0.05);
+    }
+  }
   const fb = new THREE.BoxGeometry(fW, 12, 14);
   B.add(fb, fMat, MX(0, fTop - 6, funnelZ + 1));
   B.box(dark, fW + 0.2, 1.5, 14.2, 0, fTop + 0.3, funnelZ + 1);

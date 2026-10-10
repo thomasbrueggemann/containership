@@ -59,6 +59,11 @@ const PRESETS = {
   bowE: `freecamShip(-60, 20, -150, 0, -222)`,
   sternTop: `freecamShip(60, 50, 280, 0, 196)`,
   aftDeck: `freecamShip(12, 28, 232, 0, 186)`,
+  // the accommodation block and the bridge, from the starboard side, ahead, and above
+  houseSide: `freecamShip(95, 52, -45, 0, -50)`,
+  houseFront: `freecamShip(10, 58, -135, 0, -50)`,
+  houseQuarter: `freecamShip(60, 70, 20, 0, -50)`,
+  funnel: `freecamShip(70, 60, 120, 0, 130)`,
   aftDeck2: `freecamShip(30, 16, 215, -6, 190)`,
   foreDeck: `freecamShip(14, 26, -150, 0, -186)`,
   foreDeck2: `freecamShip(26, 14, -165, 0, -190)`,
@@ -116,6 +121,8 @@ const PRESETS = {
   // traffic vessels by name, from a quarter angle at about three lengths
   // the pilot boat alongside the ship (set it there first: SHOT_JS="window.__side = pilotAlongside(); true")
   pilotA: `freecamShip(window.__side * 58, 14, 24, window.__side * 33.3, 10)`,
+  ladderA: `freecamShip(window.__side * 48, 10, 22, window.__side * 29.3, 10)`,
+  ladderB: `freecamShip(window.__side * 40, 24, 2, window.__side * 29.3, 12)`,
   pilotB: `freecamShip(window.__side * 44, 7, 4, window.__side * 33.3, 10)`,
   pilotTop: `freecamShip(window.__side * 36, 34, 18, window.__side * 33.3, 10)`,
   vesselRPA: `vessel('RPA 4', 3)`,
