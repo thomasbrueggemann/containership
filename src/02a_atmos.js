@@ -46,13 +46,14 @@ const ATMOS = {
     };
     ATMOS.hook = hook;
     THREE.Material.prototype.onBeforeCompile = hook;
-    THREE.Material.prototype.customProgramCacheKey = function () { return this.userData && this.userData.glassDirt ? 'glass' : ''; };
+    THREE.Material.prototype.customProgramCacheKey = function () { const u = this.userData; return u && u.glassDirt ? 'glass' : u && u.grunge !== undefined ? 'g' + u.grunge : ''; };
   },
   // Object-space "grunge" for every lit material: broad stains, mid-scale mottling, vertical rain streaks on walls,
   // and matching roughness changes – the difference between painted CG and weathered steel and concrete.
   // Object space (not world space) so it stays put on the moving ship and on every container instance.
   grunge(shader, mat) {
     shader.uniforms.uGrunge = ATMOS.U.uGrunge; shader.uniforms.uGrungeK = ATMOS.U.uGrungeK;
+    const gScale = mat && mat.userData && mat.userData.grunge !== undefined ? mat.userData.grunge : 1;        // 1 = full weathering; a cleaned interior asks for less (userData.grunge)
     if (ENV.night) for (const k in LAMPS.U) shader.uniforms[k] = LAMPS.U[k];
     shader.uniforms.uGlassDirt = ATMOS.U.uGlassDirt; shader.uniforms.uDirt = ATMOS.U.uDirt; const glass = !!(mat && mat.userData && mat.userData.glassDirt);
     const far = FARSHADOW.wantMat && FARSHADOW.lightsChunk();                                     // the port's shadow, multiplied into the sun's (see 02f)
@@ -89,14 +90,14 @@ const ATMOS = {
           }
           float gVert = smoothstep(0.5, 0.9, 1.0 - abs(normalize(vLN).y));
           grime = gL * 0.5 + gM * 0.3 + gS * 0.2;
-          diffuseColor.rgb *= 1.0 - uGrungeK * (0.26 * smoothstep(0.3, 1.0, grime) + gVert * 0.2 * smoothstep(0.5, 0.95, gV) - 0.07 * (gS - 0.5));
+          diffuseColor.rgb *= 1.0 - uGrungeK * ${gScale.toFixed(2)} * (0.26 * smoothstep(0.3, 1.0, grime) + gVert * 0.2 * smoothstep(0.5, 0.95, gV) - 0.07 * (gS - 0.5));
         }
         #endif
         #ifdef GLASS_DIRT
           diffuseColor.rgb = vec3(0.8, 0.88, 0.9);          // undo the darkening above: salt on glass is pale
           vec3 dm = texture(uDirt, vLP.xy * 0.45 + vec2(0.3, 0.7)).rgb;       // panes are planes: their own x/y are the glass
-          float dirt = clamp(dm.r * 0.5 + dm.g * 0.22 + dm.b * 0.3, 0.0, 1.0) * uGlassDirt;
-          diffuseColor.a = clamp(diffuseColor.a + dirt * 0.2, 0.0, 1.0);
+          float dirt = clamp(dm.r * 0.9 + dm.g * 0.05 + dm.b * 0.5, 0.0, 1.0) * uGlassDirt;        // (the broad blotches read as camouflage paint on a window seen at an angle: kept as a faint haze)
+          diffuseColor.a = clamp(diffuseColor.a + dirt * 0.4, 0.0, 1.0);
         #endif`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         #ifndef NO_GRUNGE
@@ -197,9 +198,9 @@ const ATMOS = {
         return mix(mix(h21(mod(i, per)), h21(mod(i + vec2(1, 0), per)), f.x), mix(h21(mod(i + vec2(0, 1), per)), h21(mod(i + vec2(1, 1), per)), f.x), f.y); }
       float fbm(vec2 p, vec2 per){ return vn(p * per, per) * 0.5 + vn(p * per * 2.0, per * 2.0) * 0.25 + vn(p * per * 4.0, per * 4.0) * 0.125 + vn(p * per * 8.0, per * 8.0) * 0.0625; }
       void main(){
-        float sp = smoothstep(0.62, 0.95, fbm(vUv, vec2(46.0)) * 1.55 - 0.05);
+        float sp = smoothstep(0.88, 1.15, fbm(vUv, vec2(46.0)) * 1.55 - 0.05);          // sparse specks: a clean pane with spray on it, not a pane that is all dirt
         float bl = smoothstep(0.5, 0.95, fbm(vUv, vec2(3.0)) * 1.55 - 0.05);
-        float st = smoothstep(0.6, 0.98, fbm(vUv, vec2(6.0, 1.0)) * 1.55 - 0.05);
+        float st = smoothstep(0.85, 1.15, fbm(vUv, vec2(6.0, 1.0)) * 1.55 - 0.05);
         gl_FragColor = vec4(sp, bl, st, 1.0);
       }`);
     return rt;

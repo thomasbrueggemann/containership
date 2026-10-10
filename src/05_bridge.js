@@ -70,7 +70,8 @@ function buildBridge(shipGroup) {
 
   // ---------- materials
   const envI = 0.35;
-  const std = (c, r = 0.7, m = 0, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m, envMapIntensity: envI, ...o });
+  // the wheelhouse is kept clean: far less of the weathering (stains, mottling) than the rest of the ship (userData.grunge, see ATMOS.grunge)
+  const std = (c, r = 0.7, m = 0, o = {}) => { const mt = new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m, envMapIntensity: envI, ...o }); mt.userData.grunge = 0.3; return mt; };
   const floorTex = panelTexture('#7d8993', 3); floorTex.repeat.set(12, 3);
   const M = {
     floor: std(0xffffff, 0.36, 0, { map: floorTex, envMapIntensity: 0.8 }),         // waxed linoleum: reflects the windows
