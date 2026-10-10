@@ -46,8 +46,9 @@ of lanes, which is sparse.
 
 **Sea.**
 - The ripple layers are baked tileable textures. An independent image review reported visible repetition (harbour entrance seen from the sea,
-  lower right; the moonlit orbit view, left); I did not confirm it at full resolution. A phase drift on the fragment waves was added, but the
-  baked layers still tile: a domain warp, or a second, differently rotated set of lookups, would break it.
+  lower right; the moonlit orbit view, left). A full-resolution crop of the entrance view at morning showed none, so it is at most angle- or
+  light-dependent and unconfirmed; the moonlit view was not re-checked. A phase drift on the fragment waves was added, but the baked layers
+  still tile: a domain warp, or a second, differently rotated set of lookups, would break any repeat that does show.
 - The far part of the own ship's wake is a streaky bright band. A real wake also leaves a smooth, darker *slick* (bubbles and surfactants damp
   the ripples) that stays visible at an angle for kilometres. The water shader does not know where the wake ribbon is, so this needs the ribbon
   (or a low-resolution wake map) to feed the shader.
