@@ -134,6 +134,9 @@ heel strike and toe-off, leg IK, pelvis motion, stride matched to speed, settle 
 lowest-foot speed 3.7 m/s before, 0.02–0.03 m/s after. The smoke test is clean in all seven cases with them. I looked at the bridge by day and night: the bodies read
 well; hair is still a plain cap and the glasses basic. Checked after the corrections above: the AB's helm pose (`crewshot helm`: upright, both hands on the wheel, pelvis at 0.998 of the hip height, walks off cleanly),
 sit → stand → walk → sit at the radar chair (no exceptions; the pelvis passes 0.81 of the hip height while rising from the seat, as expected from a low seat), the night and golden-hour glass, and the
-JavaScript cost of updating all crew (0.056 ms per frame). Still not tested: save/restore of a mid-walk crew
-member, GPU frame time with all crew at high quality (a person is near 20 k triangles). The deck figures are a few pixels tall in the orbit view. The agent's
+JavaScript cost of updating all crew (0.056 ms per frame). Save and restore with a crew member mid-walk (speed up, a foot in the air) ran
+without exceptions: they go back to their post and the pelvis stays at 0.875–0.99 of the hip height. **Cost of the crew** in the bridge view (morning, high, all passes): 1157 draw calls and
+3.92 M triangles with four visible crew against 1076 and 3.79 M without, i.e. +81 calls (7.5 %) and +126 k triangles (3.3 %; a person is about 25 k). A GPU frame-time A/B was tried but the machine
+was loaded (load average 22–45) and the noise exceeded the effect (91–128 ms with, 114–134 ms without), so only the counts are reliable; draw calls are what cost on Retina screens, so expect a
+millisecond or two. The deck figures are a few pixels tall in the orbit view. The agent's
 before/after images are in the session scratchpad (`crew/`, temporary); its worktree `.claude/worktrees/agent-a2c16c5d25b500d6f` can be deleted.
