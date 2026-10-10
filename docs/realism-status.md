@@ -132,6 +132,8 @@ New modules `src/09b_body.js` (23-bone skinned body, lofted shells, per-person b
 (procedural normal/roughness maps: placket, pockets, creases), `09b_details.js` (collar, epaulettes, buckle, radio, hi-vis), `09b_gait.js` (planted feet with
 heel strike and toe-off, leg IK, pelvis motion, stride matched to speed, settle steps); `09_crew.js` and `09a_heads.js` call them. Measured foot skate while walking:
 lowest-foot speed 3.7 m/s before, 0.02–0.03 m/s after. The smoke test is clean in all seven cases with them. I looked at the bridge by day and night: the bodies read
-well; hair is still a plain cap and the glasses basic. Not tested by the agent or me: the AB's helm pose, sit/stand transitions, save/restore of a mid-walk crew
-member, frame time with all crew at high quality (a person is near 20 k triangles). The deck figures are a few pixels tall in the orbit view. The agent's
+well; hair is still a plain cap and the glasses basic. Checked after the corrections above: the AB's helm pose (`crewshot helm`: upright, both hands on the wheel, pelvis at 0.998 of the hip height, walks off cleanly),
+sit → stand → walk → sit at the radar chair (no exceptions; the pelvis passes 0.81 of the hip height while rising from the seat, as expected from a low seat), the night and golden-hour glass, and the
+JavaScript cost of updating all crew (0.056 ms per frame). Still not tested: save/restore of a mid-walk crew
+member, GPU frame time with all crew at high quality (a person is near 20 k triangles). The deck figures are a few pixels tall in the orbit view. The agent's
 before/after images are in the session scratchpad (`crew/`, temporary); its worktree `.claude/worktrees/agent-a2c16c5d25b500d6f` can be deleted.

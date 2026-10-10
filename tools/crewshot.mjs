@@ -11,6 +11,7 @@
 //   walk     8-frame strip across one gait cycle (camera tracks the walker; --view side|front|back|three)       -> <id>_walk_0..7.png
 //   decks    the deck-station figures (forecastle and poop) from free cameras and from the orbit camera        -> decks_*.png
 //   probe    run page-side JavaScript (--jsfile) and print what it returns
+//   helm     the helmsman at the wheel from behind, the side and the front                                       -> ab_helm_back|side|front.png
 //   corner   a right-angle turn while walking, a frame every --every seconds -> <id>_corner_NN.png
 //   skate    foot-skate numbers while walking
 //   fp       first-person views from the player's eye height next to the crew at their posts                     -> fp_*.png
@@ -313,6 +314,13 @@ try {
         await ev(`(() => { const m = CREW.byId('${idd}'); m.path = []; m.task = null; return true; })()`);
       }
       await ev('CS.showAll(); true');
+    }
+    if (scene === 'helm') {
+      // the helmsman at the wheel (hand steering): from behind-left, from the side and from the front
+      await ev(`(() => { const ab = CREW.byId('ab'); CS.hideOthers('ab'); const [x, z] = BR.nodes.helm; CS.place('ab', x, z, 0); ab.node = 'helm'; ab.state = 'idle'; if (ab.home) ab.home.node = 'helm'; CS.settle(ab, 3); CS.freeze(ab); return true; })()`);
+      const hn = await ev(`BR.nodes.helm`); const [hx, hz] = hn;
+      for (const [nm, ax, ay, az] of [['back', -0.9, 1.5, 1.4], ['side', -1.7, 1.3, 0], ['front', 0.5, 1.4, -1.5]]) { await ev(`CS.cam(${hx + ax}, ${ay}, ${hz + az}, ${hx}, 1.2, ${hz}, 38)`); await shot(`ab_helm_${nm}`); }
+      await ev('CS.unfreeze(CREW.byId("ab")); CS.showAll(); true');
     }
     if (scene === 'corner') {
       // a right-angle turn while walking (-4, 2.6) -> (-4, 6): a frame every --every seconds (default 0.25) from just before the corner, camera following from the side
