@@ -97,8 +97,8 @@ function hullTexture(o) {
     { const cx = U(0.5), cy = rowOf(2.2, half), r = 0.35 * W / o.L;
       x.save(); x.translate(cx, cy); x.scale(1, (H / 2) / span / (W / o.L)); x.strokeStyle = '#fff'; x.lineWidth = 3;
       x.beginPath(); x.arc(0, 0, r, 0, 7); x.stroke(); x.beginPath(); x.moveTo(-r * 1.4, 0); x.lineTo(r * 1.4, 0); x.stroke(); x.restore(); }
-    // hawse pipe rust
-    if (o.detail > 1) for (const s of [0.93]) {
+    // hawse pipe rust (abaft the bow name: at 0.93 the pipe's black ellipse sat on the first letter)
+    if (o.detail > 1) for (const s of [0.9]) {
       const g2 = x.createLinearGradient(0, rowOf(o.D - 1, half), 0, rowOf(-1, half));
       g2.addColorStop(0, 'rgba(110,50,25,0.45)'); g2.addColorStop(1, 'rgba(110,50,25,0)');
       x.fillStyle = g2; x.fillRect(U(s) - 12, rowOf(o.D - 1, half), 24, rowOf(-1, half) - rowOf(o.D - 1, half));
@@ -263,13 +263,14 @@ function buildContainerShip(o) {
     if (o.style === 'maersk2') return r < 0.5 ? 'maersk' : r < 0.55 ? 'reefer' : 'generic';
     return r < 0.12 ? 'maersk' : r < 0.2 ? 'reefer' : 'generic';
   };
-  const palette = o.palette || BOX_COLORS;
+  const palette = o.palette;                                      // a custom livery mix, else the weathered port palette with a few dominant lines per bay (boxPicker)
   const bays = [];
   for (const [z0, z1] of zones) {
     let z = z0 + bayPitch / 2;
     while (z + bayPitch / 2 <= z1 + 0.01) { bays.push(z); z += bayPitch; }
   }
   for (const bz of bays) {
+    const colOf = palette ? () => pick(palette) : boxPicker(2, 0.66);
     const s = (o.L / 2 - bz) / o.L;
     const hb = Math.min(hullHalfBreadth(s - 0.016, o.D, o), hullHalfBreadth(s + 0.016, o.D, o)) - 1.0;
     const rows = Math.max(2, Math.min(o.rows || 99, Math.floor(2 * hb / 2.53)));
@@ -291,8 +292,8 @@ function buildContainerShip(o) {
         const kind = kindOf();
         const len = kind !== 'reefer' && rand() < 0.08 ? 6.06 : 12.19;
         if (len < 7) {
-          for (const dz of [-3.05, 3.05]) boxes.push({ x, y: hatchTop + t * 2.59, z: bz + dz, kind, color: pick(palette), len: 6.06 });
-        } else boxes.push({ x, y: hatchTop + t * 2.59, z: bz, kind, color: pick(palette) });
+          for (const dz of [-3.05, 3.05]) boxes.push({ x, y: hatchTop + t * 2.59, z: bz + dz, kind, color: colOf(), len: 6.06 });
+        } else boxes.push({ x, y: hatchTop + t * 2.59, z: bz, kind, color: colOf() });
       }
     }
   }

@@ -87,9 +87,29 @@ const POST = {
     const cw = Math.max(2, this.w >> 1), ch = Math.max(2, this.h >> 1);
     if (!this.cloudRT || this.cloudRT.width !== cw || this.cloudRT.height !== ch) {
       if (this.cloudRT) this.cloudRT.dispose();
-      this.cloudRT = new THREE.WebGLRenderTarget(cw, ch, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+      for (const t of this.cloudAcc || []) t.dispose();
+      const mk = () => new THREE.WebGLRenderTarget(cw, ch, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+      this.cloudRT = mk();
+      this.cloudAcc = [mk(), mk()]; this.accCur = 0; this.accN = 0;                  // (history of the temporal accumulation, ping-pong; accN = frames in it)
     }
     return this.cloudRT;
+  },
+  // The clouds are marched at half resolution with a jitter that differs from pixel to pixel (4×4 Bayer) and from frame to frame; this pass
+  // averages the frames. The clouds are at the horizon's distance, so the previous frame's picture of the same direction is found by the
+  // camera's rotation alone (translation is a hundred thousandth of a pixel); history that no longer fits the current neighbourhood (a fast turn,
+  // the zoom of the binoculars) is clamped to it, so nothing ghosts. Result: a sharp, grid-free sky at the cost of one small pass.
+  accumulateClouds(crt, D) {
+    const m = this.mAcc.uniforms, u = D.skyMat.uniforms, cur = 1 - this.accCur, hist = this.cloudAcc[this.accCur], out = this.cloudAcc[cur];
+    if (!this._pv) { this._pv = new THREE.Matrix4(); this._pp = new THREE.Matrix4(); this._rot = new THREE.Matrix4(); }
+    this._rot.multiplyMatrices(this._pv, camera.matrixWorld);                                   // current view space → previous view space (rotation part is what counts)
+    m.tNew.value = crt.texture; m.tHist.value = hist.texture;
+    m.uRot.value.setFromMatrix4(this._rot); m.uInvProj.value.copy(camera.projectionMatrixInverse); m.uPrevProj.value.copy(this._pp);
+    m.uValid.value = this.accN > 0 ? 1 : 0; m.uBlend.value = Math.max(0.1, 1 / (this.accN + 1));
+    this.run(this.mAcc, out);
+    this.accCur = cur; this.accN = Math.min(this.accN + 1, 60);
+    this._pv.copy(camera.matrixWorldInverse); this._pp.copy(camera.projectionMatrix);
+    u.tClouds.value = out.texture; u.uAcc.value = Math.min(1, this.accN / 10);
+    D.cloudFrame.value = (D.cloudFrame.value + 1) % 64;
   },
   pass(frag, uniforms, defines = {}, extra = {}) {
     return new THREE.ShaderMaterial({
@@ -152,6 +172,23 @@ const POST = {
         gl_FragColor = vec4(acc / ws * uK / (1.0 + dist * dist * 6.0), 1.0);
       }`, { tScene: T(), tDepth: T(), uSun: V2(), uAspect: T(1.6), uK: T(0) },
     { blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor });
+    // --- temporal accumulation of the half-resolution cloud march (see accumulateClouds)
+    this.mAcc = this.pass(`
+      uniform sampler2D tNew, tHist; uniform mat4 uInvProj, uPrevProj; uniform mat3 uRot; uniform float uBlend, uValid; varying vec2 vUv;
+      void main(){
+        vec4 cur = texture2D(tNew, vUv);
+        if (uValid < 0.5) { gl_FragColor = cur; return; }
+        vec4 v = uInvProj * vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
+        vec3 dir = uRot * (v.xyz / v.w);                                  // this pixel's direction, in the previous frame's view space
+        vec4 pc = uPrevProj * vec4(dir, 1.0);
+        vec2 puv = pc.xy / pc.w * 0.5 + 0.5;
+        if (dir.z >= 0.0 || puv.x < 0.0 || puv.y < 0.0 || puv.x > 1.0 || puv.y > 1.0) { gl_FragColor = cur; return; }
+        vec2 t = 1.0 / vec2(textureSize(tNew, 0));
+        vec4 mn = cur, mx = cur;
+        for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) { vec4 c = texture2D(tNew, vUv + vec2(float(i), float(j)) * t); mn = min(mn, c); mx = max(mx, c); }
+        vec4 h = clamp(texture2D(tHist, puv), mn, mx);
+        gl_FragColor = mix(h, cur, uBlend);
+      }`, { tNew: T(), tHist: T(), uInvProj: { value: new THREE.Matrix4() }, uPrevProj: { value: new THREE.Matrix4() }, uRot: { value: new THREE.Matrix3() }, uBlend: T(0.1), uValid: T(0) });
     // --- ambient occlusion from the (logarithmic) depth buffer. Output: r = AO, gb = view normal xy, a = view depth
     this.mAO = this.pass(`
       uniform sampler2D tDepth; uniform vec2 uRes; uniform float uFar, uTanH, uAspect, uRadius;
@@ -349,6 +386,8 @@ const POST = {
       r.setRenderTarget(crt); r.setClearAlpha(0); r.autoClear = true;
       GPUPROF.begin('clouds'); r.render(D.cloudScene, camera); GPUPROF.end();
       r.setClearAlpha(ca);
+      if (this.noAcc === undefined) this.noAcc = /[?&]cloudacc=off/.test(location.search);
+      if (!this.noAcc) { r.autoClear = false; this.accumulateClouds(crt, D); r.autoClear = true; }
     }
     // 1. scene → HDR target
     GPUPROF.poll();

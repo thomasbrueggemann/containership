@@ -67,7 +67,9 @@ The picture is built for plausibility rather than looks alone: everything is lit
   binoculars bring the small things back. A mesh can also carry `userData.farCull` – a distance beyond which it is not drawn at all (the yard gantries' fine
   structure, the detailed tree crowns). Draw calls roughly halve; an A/B on a frozen frame changes 0.03 % of the pixels.
 - **Sky** (`02a_atmos.js`): a Preetham clear sky is baked into cube maps for lighting and reflections; clouds are raymarched live through a
-  96³ GPU noise volume (cumulus layer with self-shadowing, plus cirrus) into a half-resolution target, and the dome composites them with a real sun
+  96³ GPU noise volume (cumulus layer with self-shadowing, plus cirrus) into a half-resolution target with a jitter that changes every frame and
+  is averaged over time (reprojected by the camera's rotation alone, clamped to the current neighbourhood so it never ghosts; `cloudacc=off`
+  shows the raw march), and the dome composites them with a real sun
   disc, moon with maria, stars and Milky Way drawn crisp at full resolution. A CPU copy of the same volume tells the game how much of the sun
   reaches the ship, so the light dims and returns as clouds drift over it.
   Every fogged material blends towards the sky colour *in the direction it is seen* (aerial perspective).

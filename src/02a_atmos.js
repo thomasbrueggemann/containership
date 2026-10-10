@@ -213,15 +213,15 @@ const ATMOS = {
     const uniforms = {                                       // shared by the three variants below, so one set of updates drives them all
       tNoise: { value: this.noise.texture }, uTime: { value: 0 }, uSunDir: { value: skySunDir.clone() }, uLightDir: { value: sunDir.clone() },
       uSunRad: { value: sunLight }, uAmb: { value: new THREE.Color(P.hemiSky).multiplyScalar(night ? 0.012 : 0.55) },
-      uCover: { value: P.cloud }, uWind: { value: new THREE.Vector2(9, 4) }, uDens: { value: P.fogD }, uHorizon: { value: new THREE.Color(P.fog) },
+      uFrame: { value: 0 }, uCover: { value: P.cloud }, uWind: { value: new THREE.Vector2(9, 4) }, uDens: { value: P.fogD }, uHorizon: { value: new THREE.Color(P.fog) },
       uSunDisc: { value: night ? 0 : 1 }, uMoon: { value: night ? 1 : 0 }, uSteps: { value: steps }, uLSteps: { value: lsteps },
-      tClouds: { value: null }, uRes: { value: new THREE.Vector2(1, 1) },
+      tClouds: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uAcc: { value: 0 },        // uAcc: how much of the clouds' temporal accumulation (see POST) can be trusted: 0 = filter the raw march spatially
       uPortPos: { value: new THREE.Vector2(150, -1100) }, uPortGlow: { value: night ? 1 : 0 },       // the terminal's lights on the underside of the clouds over it
     };
     const vertexShader = `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vec4 p = projectionMatrix * viewMatrix * w; gl_Position = p.xyww; }`;
     const fragmentShader = `
         precision highp sampler3D;
-        uniform sampler3D tNoise; uniform float uTime, uCover, uDens, uSunDisc, uMoon, uSteps, uLSteps, uPortGlow; uniform vec2 uPortPos; uniform vec3 uSunDir, uLightDir, uSunRad, uAmb, uHorizon; uniform vec2 uWind;
+        uniform sampler3D tNoise; uniform float uTime, uCover, uDens, uSunDisc, uMoon, uSteps, uLSteps, uPortGlow, uFrame, uAcc; uniform vec2 uPortPos; uniform vec3 uSunDir, uLightDir, uSunRad, uAmb, uHorizon; uniform vec2 uWind;
         #ifdef PASS_SKY
           uniform sampler2D tClouds; uniform vec2 uRes;
         #endif
@@ -256,7 +256,12 @@ const ATMOS = {
           #ifdef PASS_SKY
             // the clouds were marched at half resolution: four bilinear taps average exactly one 4×4 period of the march's Bayer jitter
             vec2 uvs = gl_FragCoord.xy / uRes, tx = 1.0 / vec2(textureSize(tClouds, 0));
-            vec4 cl = 0.25 * (texture(tClouds, uvs + tx * vec2(-1.0, -1.0)) + texture(tClouds, uvs + tx * vec2(1.0, -1.0)) + texture(tClouds, uvs + tx * vec2(-1.0, 1.0)) + texture(tClouds, uvs + tx));
+            vec4 cl;
+            if (uAcc > 0.999) cl = texture(tClouds, uvs);                                       // (accumulated over time: the jitter has averaged out already)
+            else {
+              cl = 0.25 * (texture(tClouds, uvs + tx * vec2(-1.0, -1.0)) + texture(tClouds, uvs + tx * vec2(1.0, -1.0)) + texture(tClouds, uvs + tx * vec2(-1.0, 1.0)) + texture(tClouds, uvs + tx));
+              if (uAcc > 0.0) cl = mix(cl, texture(tClouds, uvs), uAcc);
+            }
             col = cl.rgb; T = 1.0 - cl.a;
           #else
           if (rd.y > 0.012) {
@@ -265,7 +270,7 @@ const ATMOS = {
             float dt = (t1 - t0) / uSteps;
             ivec2 bp = ivec2(gl_FragCoord.xy) & 3;                 // 4×4 Bayer: the composite pass averages exactly these 16 phases
             const float bay[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
-            float jit = (bay[bp.y * 4 + bp.x] + 0.5) / 16.0;
+            float jit = fract((bay[bp.y * 4 + bp.x] + 0.5) / 16.0 + uFrame * 0.61803398875);        // (uFrame: a different phase each frame while the clouds are accumulated over time, else 0)
             float cosT = dot(rd, uLightDir);
             float ph = mix(hg(cosT, 0.62), hg(cosT, -0.28), 0.3) * 4.0;
             vec3 sunCol = uSunRad;
@@ -383,7 +388,8 @@ const ATMOS = {
     dome.userData = { steps, lsteps, full };
     follow(dome); dome.renderOrder = -10;
     if (POST.on && !/[?&]clouds=full/.test(location.search)) {
-      dome.userData.cloudMat = mk({ PASS_CLOUDS: '' }, { depthTest: false, blending: THREE.NoBlending });
+      dome.userData.cloudFrame = { value: 0 };                                  // (only the march into the cloud target varies its jitter from frame to frame; the planar reflection's own march must not shimmer)
+      dome.userData.cloudMat = mk({ PASS_CLOUDS: '' }, { depthTest: false, blending: THREE.NoBlending, uniforms: { ...uniforms, uFrame: dome.userData.cloudFrame } });
       dome.userData.skyMat = mk({ PASS_SKY: '' });
       const cm = new THREE.Mesh(dome.geometry, dome.userData.cloudMat); follow(cm);
       dome.userData.cloudScene = new THREE.Scene(); dome.userData.cloudScene.add(cm);

@@ -90,6 +90,10 @@ const PRESETS = {
   gantryA: `freecam(-262, 16, -790, -250, 14, -905)`,
   // alongside: needs SHOT_JS="shipAtBerth(); true"
   atWingFwd: `inBridge(-27.2, -2.3, 0.5, -0.3)`,
+  // standing on the quay beside the ship alongside (needs shipAtBerth): fenders, hull plating, bollards, lines
+  quaySideA: `freecam(300, 7.5, -716, 280, 9, -698)`,
+  quaySideB: `freecam(180, 6.5, -712, 230, 10, -698)`,
+  quaySideC: `freecam(410, 9, -708, 360, 7, -698)`,
   atWingAft: `inBridge(-27.2, -2.3, 2.4, -0.3)`,
   atWingDown: `inBridge(-27.2, -2.3, 1.1, -0.9)`,
   atBridge: `inBridge(-0.4, -1.6, -0.9, -0.05)`,
@@ -153,6 +157,9 @@ const PRESETS = {
   horizon: `lookAt(95, 1.5, 55)`,
   sunGlare: `lookAt(128, 9, 45)`,
   sunGold: `lookAt(258, 5, 55)`,
+  // the camera turns at a steady rate while frames are stepped (use with SHOT_FREEZE=1 SHOT_SEQ="1,1": each entry steps 30 frames of the turn, then shoots): temporal effects (ghosting, smear)
+  skyPan30: `lookPan(150, 22, 30)`,
+  skyPan120: `lookPan(150, 22, 120)`,
   sunGoldHi: `lookAt(250, 14, 60)`,
   sunGoldEdge: `lookAt(212, 6, 60)`,
   moon: `lookAt(160, 26, 40)`,
@@ -183,6 +190,8 @@ const HELPERS = `
   window.freecam = (x, y, z, tx, ty, tz) => { const P = __dbg.PLAYER; if (__dbg.G.mode !== 'orbit') P.toggleOrbit(); P.update = P.__upd || (P.__upd = P.update); const c = __dbg.camera; P.update = function () { c.position.set(x, y, z); c.lookAt(tx, ty, tz); }; };
   window.lookAt = (az, el, fov = 68, h = 48) => { const P = __dbg.PLAYER; if (__dbg.G.mode !== 'orbit') P.toggleOrbit(); P.update = P.__upd || (P.__upd = P.update); const c = __dbg.camera, s = __dbg.G.ship;
     P.update = function () { const a = az * Math.PI / 180, e = el * Math.PI / 180; c.position.set(s.x, h, s.z); c.lookAt(s.x + Math.sin(a) * Math.cos(e) * 1000, h + Math.sin(e) * 1000, s.z - Math.cos(a) * Math.cos(e) * 1000); if (c.fov !== fov) { c.fov = fov; c.updateProjectionMatrix(); } }; };
+  window.lookPan = (az0, el, rate, fov = 68, h = 48) => { const P = __dbg.PLAYER; if (__dbg.G.mode !== 'orbit') P.toggleOrbit(); P.update = P.__upd || (P.__upd = P.update); const c = __dbg.camera, s = __dbg.G.ship;
+    P.update = function () { const a = (az0 + rate * __dbg.G.realT) * Math.PI / 180, e = el * Math.PI / 180; c.position.set(s.x, h, s.z); c.lookAt(s.x + Math.sin(a) * Math.cos(e) * 1000, h + Math.sin(e) * 1000, s.z - Math.cos(a) * Math.cos(e) * 1000); if (c.fov !== fov) { c.fov = fov; c.updateProjectionMatrix(); } }; };
   window.lookFrom = (dx, dz, h, az, el, fov = 68) => { const P = __dbg.PLAYER; if (__dbg.G.mode !== 'orbit') P.toggleOrbit(); P.update = P.__upd || (P.__upd = P.update); const c = __dbg.camera, s = __dbg.G.ship;
     P.update = function () { const a = az * Math.PI / 180, e = el * Math.PI / 180, x = s.x + dx, z = s.z + dz; c.position.set(x, h, z); c.lookAt(x + Math.sin(a) * Math.cos(e) * 1000, h + Math.sin(e) * 1000, z - Math.cos(a) * Math.cos(e) * 1000); if (c.fov !== fov) { c.fov = fov; c.updateProjectionMatrix(); } }; };
   // camera in the own ship's frame: (right, up, aft-of-stem... given as ship-local x starboard, y up, z; target x, z) -- z negative = forward of amidships

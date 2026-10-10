@@ -205,7 +205,20 @@ function boxUV(w, h, d, s = 10) {
 
 // ------------------------------------------------------------- containers
 const CONTAINER = {};
-const BOX_COLORS = ['#a8382a', '#7e2b22', '#1f5b98', '#243a86', '#e06a1a', '#eea224', '#1d7244', '#6d7982', '#dcdcd8', '#cbc2ae', '#a0145c', '#0c5a6a', '#9a9c9c', '#5e6f2f', '#3b3f44', '#c7c9c9', '#b86a2a', '#2c6e9e'];
+// Container colours as a port really shows them: the lines' standard liveries in weathered tones, weighted (blues, greys, reds and whites make most of it,
+// there are very few magentas), every box a little different in lightness and age, and neighbouring boxes mostly of the same few lines. Equal weights on
+// eighteen saturated colours, drawn independently, read as a toy mosaic.
+const BOX_PAL = [['#2c6e9e', 6], ['#1f5b98', 5], ['#243a86', 3], ['#a8382a', 6], ['#7e2b22', 4], ['#b86a2a', 3], ['#c7c9c9', 6], ['#9a9c9c', 5], ['#6d7982', 4], ['#dcdcd8', 5],
+  ['#cbc2ae', 2], ['#3b3f44', 2], ['#1d7244', 3], ['#5e6f2f', 2], ['#e06a1a', 2], ['#eea224', 1.5], ['#0c5a6a', 1], ['#a0145c', 0.3]];
+const BOX_PAL_SUM = BOX_PAL.reduce((a, b) => a + b[1], 0), _boxC = new THREE.Color(), _boxHSL = { h: 0, s: 0, l: 0 }, BOX_RUST = new THREE.Color('#7a3f24');
+function boxBase() { let r = rand() * BOX_PAL_SUM; for (const [c, w] of BOX_PAL) if ((r -= w) < 0) return c; return BOX_PAL[0][0]; }
+function boxAged(hex) {
+  _boxC.set(hex).getHSL(_boxHSL);
+  _boxC.setHSL(_boxHSL.h + (rand() - 0.5) * 0.012, _boxHSL.s * (0.7 + rand() * 0.4), _boxHSL.l * (0.82 + rand() * 0.3));
+  if (rand() < 0.05) _boxC.lerp(BOX_RUST, 0.45);                              // the odd rusty old box
+  return '#' + _boxC.getHexString();
+}
+function boxPicker(n = 3, stick = 0.62) { const dom = Array.from({ length: n }, boxBase); return () => boxAged(rand() < stick ? pick(dom) : boxBase()); }
 function initContainers() {
   CONTAINER.geo = containerGeometry();
   for (const k of ['maersk', 'generic', 'reefer']) {
@@ -428,13 +441,16 @@ async function buildWorld(progress) {
   // ---------- container yard: ASC blocks perpendicular to the quay
   const yard = [];
   const addBlock = (x0, z0, rows, bays, maxT, ry = 0, fill = 0.94, emptyBays = 2) => {
+    const pickCol = boxPicker(3, 0.6);
     for (let r = 0; r < rows; r++) for (let b = emptyBays; b < bays; b++) {
       if (rand() > fill) continue;
       const tiers = Math.max(1, maxT - (rand() < 0.3 ? 1 : 0) - (rand() < 0.08 ? 2 : 0));
       const x = ry === 0 ? x0 + r * 2.9 : x0 + b * 12.8, z = ry === 0 ? z0 - b * 12.8 : z0 + r * 2.9;
+      let col = pickCol();
       for (let t = 0; t < tiers; t++) {
         const k = rand() < 0.42 ? 'maersk' : rand() < 0.07 ? 'reefer' : 'generic';
-        yard.push({ x, y: QUAY_H + 0.25 + t * 2.62, z, ry: ry === 0 ? 0 : Math.PI / 2, kind: k, color: pick(BOX_COLORS) });
+        if (rand() < 0.45) col = pickCol();                                       // (a stack is often one line's boxes)
+        yard.push({ x, y: QUAY_H + 0.25 + t * 2.62, z, ry: ry === 0 ? 0 : Math.PI / 2, kind: k, color: col });
       }
     }
   };
@@ -695,7 +711,7 @@ async function buildWorld(progress) {
   for (const [z, dir, speed, n] of lanes) for (let k = 0; k < n; k++) {
     const truck = z < -1000;
     const g = truck ? mkTruck() : mkAGV();
-    if (rand() < 0.65) buildContainers([{ x: truck ? -0.6 : 0, y: truck ? 1.4 : 1.55, z: 0, ry: Math.PI / 2, kind: rand() < 0.45 ? 'maersk' : 'generic', color: pick(BOX_COLORS) }], g);
+    if (rand() < 0.65) buildContainers([{ x: truck ? -0.6 : 0, y: truck ? 1.4 : 1.55, z: 0, ry: Math.PI / 2, kind: rand() < 0.45 ? 'maersk' : 'generic', color: boxAged(boxBase()) }], g);
     g.position.set(0, QUAY_H + 0.3, z); root.add(g);
     WORLD.vehicles.push({ g, z, dir, speed, off: (L1 - L0) * k / n + rr(0, 30), L0, L1 });
   }
@@ -816,7 +832,7 @@ function buildSTS(B, root, x, zq, rot, state, shipTop = 35, num = 1) {
     sb.build(spreader, { dynamic: true });
     const cable = new THREE.Group();                                                     // four hoist ropes from the trolley to the spreader's corners (scaled in y by the animation)
     for (const dx of [-0.9, 0.9]) for (const dz of [-3.2, 3.2]) { const rg = new THREE.BoxGeometry(0.1, 1, 0.1); rg.translate(0, -0.5, 0); const rope = new THREE.Mesh(rg, dark); rope.position.set(dx, 0, dz); cable.add(rope); }
-    const box = buildContainers([{ x: 0, y: -3.6, z: 0, kind: rand() < 0.5 ? 'maersk' : 'generic', color: pick(BOX_COLORS) }], spreader)[0];
+    const box = buildContainers([{ x: 0, y: -3.6, z: 0, kind: rand() < 0.5 ? 'maersk' : 'generic', color: boxAged(boxBase()) }], spreader)[0];
     spreader.rotation.y = rot + Math.PI / 2; cable.rotation.y = rot;
     root.add(spreader); root.add(cable);
     WORLD.cranesAnim.push({ trolley, spreader, cable, box, P, top: gy - 1.5, shipY: shipTop + 4.2, landY: H0 + 2.0 + 3.7, wLand: -16, wShip: rr(14, 44), t: rand() * 100, speed: rr(0.8, 1.2), loaded: rand() < 0.5, gy });
@@ -869,7 +885,7 @@ function buildASC(B, root, xL, xR, z, hang) {
   for (const [dx, dz] of [[-1.0, -3.0], [1.0, -3.0], [-1.0, 3.0], [1.0, 3.0]]) B.box(dark, 0.1, drop, 0.1, tx + dx, yT + 1.0 - drop / 2, z + dz);
   B.box(yel, 2.6, 0.8, 12.4, tx, sy, z);
   for (const dx of [-1.1, 1.1]) for (const dz of [-5.9, 5.9]) B.box(dark, 0.5, 0.5, 0.5, tx + dx, sy - 0.55, z + dz);
-  if (hang && rand() < 0.5) hang.push({ x: tx, y: sy - 0.4 - 2.59, z, ry: 0, kind: rand() < 0.42 ? 'maersk' : 'generic', color: pick(BOX_COLORS) });
+  if (hang && rand() < 0.5) hang.push({ x: tx, y: sy - 0.4 - 2.59, z, ry: 0, kind: rand() < 0.42 ? 'maersk' : 'generic', color: boxAged(boxBase()) });
 }
 
 function lightMast(B, root, x, z) {

@@ -317,7 +317,7 @@ function buildOcean() {
           vec2 cxz = p + uSunDir.xz / uSunDir.y * 1900.0 + vec2(9.0, 4.0) * uCloudT;
           float thr = mix(0.62, 0.12, uCover);
           sv = 1.0 - 0.85 * smoothstep(thr - 0.1, thr + 0.12, texture(uCloudNoise, vec3(cxz / 52000.0, 0.31)).r);
-          sv *= 1.0 - 0.82 * shipShadow(p, uSunDir);                       // …and ships' shadows
+          sv *= 1.0 - mix(0.28, 0.82, smoothstep(0.4, 2.0, uSunI)) * shipShadow(p, uSunDir);        // …and ships' shadows (by moonlight a ship's shadow on the sea is faint)
           if (p.x > -3700.0) sv *= mix(1.0, farShadow(vec3(p.x, 0.4, p.y), 1.0), 0.85);        // …and the port's (cranes, stacks, the quay)
         }
         // sea-bed depth: shoals are greener, lighter and make the swell break
