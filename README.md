@@ -87,7 +87,8 @@ The picture is built for plausibility rather than looks alone: everything is lit
   white water is lit by sky and sun/moon. The bow wave swells as the bow digs into a wave and shrinks as it lifts. `?swdebug` paints the fields.
 - **Land and structures**: the mainland is a patchwork of fields with hedgerows and tracks (`landTexture`); trees are lumpy multi-lobe broadleaf, poplar
   and conifer crowns with per-tree tint, height and lean (cheaper crowns beyond the terminal); the yard gantries and quay cranes carry stiffener ribs, rails,
-  handrails, louvres and stair towers, and the gantries hang containers from their spreaders.
+  handrails, louvres and stair towers, and the gantries hang containers from their spreaders. The mooring lines are three-strand laid ropes that sag
+  between the fairlead and the bollard they are made fast to, with an eye over it.
 - **Materials**: object-space weathering (stains, rain streaks, roughness variation) is injected into every standard material; containers,
   hull plating and deckhouse facades carry normal and roughness/metalness maps generated in `01_textures.js`; so do the apron concrete, the
   asphalt and the quay wall (slabs with their own tone, cracks, oil, truck lanes – colour, height and roughness drawn together so they agree);

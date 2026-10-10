@@ -1,6 +1,7 @@
 // ============================================================================
 // 11 — SCENARIO: arrival procedure, radio traffic, pilot, scoring
 // ============================================================================
+const _lp0 = new THREE.Vector3(), _lp1 = new THREE.Vector3(), _lu = new THREE.Vector3(), _ls = new THREE.Vector3(), _lw = new THREE.Vector3(), _lup = new THREE.Vector3(0, 1, 0);
 const SCN = {
   steps: [], cur: 0, timers: [], once: {}, done: false, failed: null, lineMeshes: [], contactCool: 0,
   init() {
@@ -150,11 +151,18 @@ const SCN = {
     if (hx && hx.active && !this.once.hxcall && Math.hypot(hx.x - s.x, hx.z - s.z) < 5000) { this.once.hxcall = true; this.say('vts', 'Majestic Maersk, HANSA EXPRESS: we are outbound, request port-to-port passing, over.', true); this.later(6, () => F.pilotOnBridge ? this.say('pilot', 'HANSA EXPRESS, Majestic Maersk: port to port, we keep to the south side. Good watch.', true) : this.say('co', 'Captain, HANSA EXPRESS wants port-to-port. We keep to the south side of the channel.')); }
     // mooring lines visuals
     for (const L of this.lineMeshes) {
-      const [ax, az] = s.toWorld(L.xb, L.yb);
-      const p0 = new THREE.Vector3(ax, 17.2, az), p1 = new THREE.Vector3(L.qx, QUAY_H + 1.2, L.qz);
-      const len = p0.distanceTo(p1);
-      L.mesh.position.copy(p0).add(p1).multiplyScalar(0.5); L.mesh.scale.set(1, len, 1);
-      L.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), p1.clone().sub(p0).normalize());
+      const [ax, az] = s.toWorld(L.xb, L.yb), p0 = _lp0.set(ax, 17.2, az), p1 = _lp1.set(L.bx, QUAY_H + 1.3, L.bz);
+      const span = p0.distanceTo(p1), sag = span * 0.012 + 0.05, { NS, RS } = L, pos = L.mesh.geometry.attributes.position, nor = L.mesh.geometry.attributes.normal, uv = L.mesh.geometry.attributes.uv;
+      _lu.subVectors(p1, p0).divideScalar(span);
+      _ls.crossVectors(_lu, _lup); if (_ls.lengthSq() < 1e-4) _ls.set(1, 0, 0); _ls.normalize(); _lw.crossVectors(_lu, _ls);
+      for (let i = 0; i <= NS; i++) {
+        const t = i / NS, k = i * (RS + 1), cx = p0.x + (p1.x - p0.x) * t, cy = p0.y + (p1.y - p0.y) * t - sag * 4 * t * (1 - t), cz = p0.z + (p1.z - p0.z) * t;
+        for (let j = 0; j <= RS; j++) {
+          const a = j / RS * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a), nx = _ls.x * c + _lw.x * sn, ny = _ls.y * c + _lw.y * sn, nz = _ls.z * c + _lw.z * sn, m = k + j;
+          pos.setXYZ(m, cx + nx * 0.065, cy + ny * 0.065, cz + nz * 0.065); nor.setXYZ(m, nx, ny, nz); uv.setXY(m, j / RS, t * span / 0.5);
+        }
+      }
+      pos.needsUpdate = nor.needsUpdate = uv.needsUpdate = true;
     }
   },
   onStep(id) {
@@ -346,11 +354,25 @@ const SCN = {
       s.lines = { tx: s.x, tz, tpsi: Math.abs(wrap180(s.psi / DEG - 90)) < 90 ? 90 * DEG : 270 * DEG, tension: 0 };
     }
   },
-  // one mooring line from a fairlead (ship frame xb, yb) to a quay bollard (world qx, qz)
+  // one mooring line from a fairlead (ship frame xb, yb) to a quay bollard (world qx, qz): a three-strand rope that sags under its own weight
+  // (rewritten every frame as the ship moves), with an eye dropped over the bollard. The line is made fast to the nearest bollard of the
+  // quay (every 25 m, 6 m in from the cope: see buildWorld) wherever the hands on the quay would have put it.
   addLineMesh(fwd, xb, yb, qx, qz) {
-    const mat = new THREE.MeshStandardMaterial({ color: fwd ? 0xf2e6b0 : 0xd9e8f2, roughness: 0.85 });
-    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 1, 6, 1, true), mat); scene.add(mesh);
-    this.lineMeshes.push({ mesh, fwd, xb, yb, qx, qz });
+    if (!SCN.rope) SCN.rope = ropeTexture();
+    const q = GEO.quays[0], bx = q.x0 + 6 + 25 * Math.round((qx - q.x0 - 6) / 25), bz = q.z - q.face * 1.8;
+    const NS = 14, RS = 8, n = (NS + 1) * (RS + 1), g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
+    const idx = []; for (let i = 0; i < NS; i++) for (let j = 0; j < RS; j++) { const a = i * (RS + 1) + j, b = a + RS + 1; idx.push(a, a + 1, b, b, a + 1, b + 1); }
+    g.setIndex(idx);
+    const mat = new THREE.MeshStandardMaterial({ color: fwd ? 0xf2e6b0 : 0xd9e8f2, roughness: 0.92, map: SCN.rope.map, normalMap: SCN.rope.normal, normalScale: new THREE.Vector2(1.1, 1.1) });
+    const mesh = new THREE.Mesh(g, mat); mesh.frustumCulled = false; mesh.castShadow = true; scene.add(mesh);
+    const eye = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.065, 6, 18), mat); eye.rotation.x = Math.PI / 2; eye.position.set(bx, QUAY_H + 1.18, bz); eye.castShadow = true; scene.add(eye);
+    this.lineMeshes.push({ mesh, eye, fwd, xb, yb, qx, qz, bx, bz, NS, RS });
+  },
+  clearLines() {
+    for (const L of this.lineMeshes) { scene.remove(L.mesh, L.eye); L.mesh.geometry.dispose(); L.eye.geometry.dispose(); L.mesh.material.dispose(); }
+    this.lineMeshes = [];
   },
   coffee() {
     if (this.once.coffee && G.simT - this.once.coffee < 300) { this.say('co', 'Another one, Captain? That will be the third this watch.'); return; }

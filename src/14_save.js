@@ -89,7 +89,7 @@ const SAVE = {
     SCN.steps.forEach((st, i) => { st.ok = i < c.cur || !!(c.ok && c.ok[i]); }); SCN.done = c.done; SCN.failed = c.failed; SCN.contactCool = c.contactCool || 0;
     SCN.lastFenderT = c.lastFenderT ?? undefined; SCN.pilotT = c.pilotT; SCN.conT = c.conT;
     SCN.timers = c.timers.map((t) => ({ t: t.t, key: t.key, arg: t.arg }));
-    for (const L of c.lines) SCN.addLineMesh(L.fwd, L.xb, L.yb, L.qx, L.qz);
+    SCN.clearLines(); for (const L of c.lines) SCN.addLineMesh(L.fwd, L.xb, L.yb, L.qx, L.qz);
     // traffic
     for (const o of snap.traffic) {
       const t = TRAFFIC.ships.find((x) => x.name === o.name); if (!t) continue;

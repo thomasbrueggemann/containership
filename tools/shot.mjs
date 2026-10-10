@@ -90,6 +90,10 @@ const PRESETS = {
   gantryA: `freecam(-262, 16, -790, -250, 14, -905)`,
   // alongside: needs SHOT_JS="shipAtBerth(); true"
   atWingFwd: `inBridge(-27.2, -2.3, 0.5, -0.3)`,
+  ropeFwd: `freecam(450, 22, -650, 470, 18, -700)`,
+  ropeAft: `freecam(150, 22, -650, 130, 18, -700)`,
+  ropeQuay: `freecam(500, 8, -715, 480, 14, -702)`,
+  ropeHigh: `freecam(380, 40, -600, 350, 16, -700)`,
   // standing on the quay beside the ship alongside (needs shipAtBerth): fenders, hull plating, bollards, lines
   quaySideA: `freecam(300, 7.5, -716, 280, 9, -698)`,
   quaySideB: `freecam(180, 6.5, -712, 230, 10, -698)`,
@@ -201,6 +205,8 @@ const HELPERS = `
     P.update = function () { const o = window.__pb; const a = o.psi + ang * Math.PI / 180 + Math.PI; c.position.set(o.x + Math.sin(a) * d, h, o.z - Math.cos(a) * d); c.lookAt(o.x + Math.sin(o.psi) * 5, 1, o.z - Math.cos(o.psi) * 5); if (c.fov !== 50) { c.fov = 50; c.updateProjectionMatrix(); } }; };
   // the own ship alongside Berth 4, port side to the quay (as scored: stopped, in the middle of the berth)
   window.shipAtBerth = () => { const s = __dbg.G.ship; s.x = 300; s.z = -668.5; s.psi = Math.PI / 2; s.u = s.v = s.r = 0; s.rpm = [0, 0]; __dbg.frame(6, 1 / 30); return true; };
+  // as shipAtBerth, with all lines out (the scenario's makeFast for both stations)
+  window.shipMoored = () => { window.shipAtBerth(); const b = __dbg.berthInfo(); __dbg.SCN.makeFast('fwd', b.side); __dbg.SCN.makeFast('aft', b.side); __dbg.frame(3, 1 / 30); return true; };
   window.pilotAlongside = () => { const s = __dbg.G.ship, P = __dbg.PILOTBOAT, side = __dbg.G.flags.leeSide === 'STBD' ? 1 : -1; const [x, z] = s.toWorld(-10, side * 33.3); P.x = x; P.z = z; P.psi = s.psi; P.state = 'alongside'; P.alongT = 0; P.grp.position.set(x, 0.2, z); P.grp.rotation.set(0, -s.psi, 0); P.grp.updateMatrixWorld(true); return side; };
   window.vessel = (name, k) => { const o = __dbg.TRAFFIC.ships.find((t) => t.name === name); window.freecam(o.x + o.L * k * 0.7, Math.max(6, o.L * 0.5), o.z + o.L * k * 0.7, o.x, 3, o.z); const P = __dbg.PLAYER, c = __dbg.camera; P.update = function () { c.position.set(o.x + o.L * k * 0.7, Math.max(6, o.L * 0.5), o.z + o.L * k * 0.7); c.lookAt(o.x, 3, o.z); }; };
   window.restoreCam = () => { const P = __dbg.PLAYER; if (P.__upd) { P.update = P.__upd; } __dbg.camera.fov = 68; __dbg.camera.updateProjectionMatrix(); };

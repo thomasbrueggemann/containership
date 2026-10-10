@@ -506,6 +506,23 @@ function landTexture() {
   return canvasTexture(c, { aniso: 8 });
 }
 
+// Three-strand laid rope (colour + normal): a tile is one lay – the strands run slanted along the rope (u round it, v along it). Fibre speckle,
+// darker grooves between the strands. The wrap is a whole number of turns, so it tiles along the rope.
+function ropeTexture() {
+  const N = 128, c = makeCanvas(N, N), x = c.getContext('2d'), hc = makeCanvas(N, N), hx = hc.getContext('2d');
+  const img = x.createImageData(N, N), him = hx.createImageData(N, N), R = mulberry32(5), strands = 3, turns = 1;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const u = i / N, v = j / N, ph = (((u * strands - v * turns * strands) % 1) + 1) % 1;       // phase across one strand
+    const hgt = Math.pow(Math.sin(Math.PI * ph), 0.55), fibre = 0.86 + 0.28 * R(), l = (0.42 + 0.58 * hgt) * fibre, o = (j * N + i) * 4;
+    img.data[o] = img.data[o + 1] = img.data[o + 2] = Math.min(255, 255 * l); img.data[o + 3] = 255;
+    const hv = Math.min(255, 255 * (hgt * 0.8 + 0.12 * R())); him.data[o] = him.data[o + 1] = him.data[o + 2] = hv; him.data[o + 3] = 255;
+  }
+  x.putImageData(img, 0, 0); hx.putImageData(him, 0, 0);
+  const map = canvasTexture(c, { aniso: 8 }), normal = heightToNormalTexture(hc, 3.0, { aniso: 8 });
+  for (const t of [map, normal]) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return { map, normal };
+}
+
 // Oil-tank shell: courses of welded plates – a tile is one plate wide (8 m) and three courses high (7.2 m), the vertical welds staggered by
 // half a plate from one course to the next. Plate-to-plate tone, weld seams in colour and height (→ normal map), rust streaks running
 // down from the welds. UVs are laid out in tile units by the caller (tankGeo).
