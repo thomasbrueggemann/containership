@@ -85,7 +85,7 @@ function updateShipVisual(dt) {
     _exv.set(0, OWN.funnelTop + 3, fz + 0.5); g.localToWorld(_exv);
     const wTo = s.windFrom + Math.PI, wv = s.windSpeed * 0.8;
     _exw.set(Math.sin(wTo) * wv, 0, -Math.cos(wTo) * wv);
-    ex.update(G.paused ? 0 : dt * G.timeScale, _exv, _exw, load < 0.05 ? 0 : 1.6 + load * 2.4, 0.12 + load * 0.26);
+    ex.update(G.paused ? 0 : dt * G.timeScale, _exv, _exw, load < 0.05 ? 0 : 1.6 + load * 2.4, 0.1 + load * 0.2);
   }
   // wake & foam
   const [sx, sz] = s.toWorld(-201, 0);
@@ -123,6 +123,7 @@ function updateEnvFrame(rdt = 1 / 60) {
   ENV.sun.intensity = ENV.P.sun * ENV.sunLevel;
   U.uCloudT.value = G.realT + ENV.cloudT0;
   fitSunShadow();
+  if (G.exhaust) G.exhaust.light();
   G.shipGroup.updateMatrixWorld(); LAMPS.update(cp, rdt); LOD.update(cp); SHSHADOW.update(cp); FARSHADOW.update(cp); NAVLIGHTS.update(cp);
 }
 

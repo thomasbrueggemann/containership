@@ -213,7 +213,7 @@ const ATMOS = {
     const uniforms = {                                       // shared by the three variants below, so one set of updates drives them all
       tNoise: { value: this.noise.texture }, uTime: { value: 0 }, uSunDir: { value: skySunDir.clone() }, uLightDir: { value: sunDir.clone() },
       uSunRad: { value: sunLight }, uAmb: { value: new THREE.Color(P.hemiSky).multiplyScalar(night ? 0.012 : 0.55) },
-      uFrame: { value: 0 }, uCover: { value: P.cloud }, uWind: { value: new THREE.Vector2(9, 4) }, uDens: { value: P.fogD }, uHorizon: { value: new THREE.Color(P.fog) },
+      uFogEnv: ATMOS.U.uFogEnv, uFrame: { value: 0 }, uCover: { value: P.cloud }, uWind: { value: new THREE.Vector2(9, 4) }, uDens: { value: P.fogD }, uHorizon: { value: new THREE.Color(P.fog) },
       uSunDisc: { value: night ? 0 : 1 }, uMoon: { value: night ? 1 : 0 }, uSteps: { value: steps }, uLSteps: { value: lsteps },
       tClouds: { value: null }, uRes: { value: new THREE.Vector2(1, 1) }, uAcc: { value: 0 },        // uAcc: how much of the clouds' temporal accumulation (see POST) can be trusted: 0 = filter the raw march spatially
       uPortPos: { value: new THREE.Vector2(150, -1100) }, uPortGlow: { value: night ? 1 : 0 },       // the terminal's lights on the underside of the clouds over it
@@ -221,6 +221,7 @@ const ATMOS = {
     const vertexShader = `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vec4 p = projectionMatrix * viewMatrix * w; gl_Position = p.xyww; }`;
     const fragmentShader = `
         precision highp sampler3D;
+        uniform samplerCube uFogEnv;
         uniform sampler3D tNoise; uniform float uTime, uCover, uDens, uSunDisc, uMoon, uSteps, uLSteps, uPortGlow, uFrame, uAcc; uniform vec2 uPortPos; uniform vec3 uSunDir, uLightDir, uSunRad, uAmb, uHorizon; uniform vec2 uWind;
         #ifdef PASS_SKY
           uniform sampler2D tClouds; uniform vec2 uRes;
@@ -265,6 +266,10 @@ const ATMOS = {
             col = cl.rgb; T = 1.0 - cl.a;
           #else
           if (rd.y > 0.012) {
+            // the haze the distant clouds fade into is the colour of the sky itself at that elevation (the same sun-less sky the fog uses), so no band shows
+            // where the clouds stop at the horizon
+            vec3 hz = textureLod(uFogEnv, vec3(rd.x, max(rd.y, 0.0) + 0.012, rd.z), 0.0).rgb;
+            float hzf = smoothstep(0.012, 0.05, rd.y);                     // the clouds fade in over the first three degrees: no edge where they begin
             // ---- cumulus layer
             float t0 = (H0 - h0) / rd.y, t1 = (H1 - h0) / rd.y;
             float dt = (t1 - t0) / uSteps;
@@ -294,8 +299,8 @@ const ATMOS = {
                   amb += vec3(1.0, 0.56, 0.24) * (0.085 * exp(-hd / 6500.0) * (1.0 - 0.55 * hf) * (0.35 + 0.65 * powder)) * uPortGlow;
                 }
                 float ft = 1.0 - exp(-(t * uDens) * (t * uDens));
-                vec3 sc = mix(lit + amb, uHorizon * 0.9, ft);
-                float a = 1.0 - exp(-sig);
+                vec3 sc = mix(lit + amb, hz, ft);
+                float a = (1.0 - exp(-sig)) * hzf;
                 col += T * sc * a;
                 T *= 1.0 - a * (1.0 - 0.5 * ft);
                 if (T < 0.01) break;
@@ -309,8 +314,8 @@ const ATMOS = {
               vec4 m = texture(tNoise, vec3(q.xz * (1.0 / 90000.0), 0.8));
               float c = smoothstep(0.4, 0.8, nz(n.g) * 0.6 + nz(n.b) * 0.4) * smoothstep(0.18, 0.5, m.r);
               float ft = 1.0 - exp(-(tc * uDens * 0.5) * (tc * uDens * 0.5));
-              vec3 sc = mix(uSunRad * (0.16 + 0.35 * hg(cosT, 0.7)) + uAmb * 0.5, uHorizon * 0.9, ft);
-              float a = c * 0.5 * (1.0 - ft * 0.7);
+              vec3 sc = mix(uSunRad * (0.16 + 0.35 * hg(cosT, 0.7)) + uAmb * 0.5, hz, ft);
+              float a = c * 0.5 * (1.0 - ft * 0.7) * hzf;
               col += T * sc * a; T *= 1.0 - a;
             }
           }
@@ -463,15 +468,15 @@ class ExhaustPlume {
     const night = ENV.night, base = night ? 0.025 : 0.2;
     this.mat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, fog: true,
-      uniforms: { tNoise: { value: ATMOS.noise.texture }, uCol: { value: new THREE.Color(base, base * 0.97, base * 0.93) }, uLit: { value: new THREE.Color(night ? 0.04 : 0.62, night ? 0.04 : 0.6, night ? 0.045 : 0.57) }, uScale: { value: 1 }, ...THREE.UniformsLib.fog },
+      uniforms: { uSunV: { value: new THREE.Vector3(0, 1, 0) }, uSunE: { value: new THREE.Color() }, uSky: { value: new THREE.Color(ENV.P.fog).multiplyScalar(0.9) }, tNoise: { value: ATMOS.noise.texture }, uCol: { value: new THREE.Color(base, base * 0.97, base * 0.93) }, uLit: { value: new THREE.Color(night ? 0.04 : 0.62, night ? 0.04 : 0.6, night ? 0.045 : 0.57) }, uScale: { value: 1 }, ...THREE.UniformsLib.fog },
       vertexShader: `
         #include <common>
         #include <fog_pars_vertex>
         #include <logdepthbuf_pars_vertex>
-        attribute float aAge, aSeed, aDens; uniform float uScale; varying float vAge, vSeed, vDens;
+        attribute float aAge, aSeed, aDens; uniform float uScale; varying float vAge, vSeed, vDens; varying vec3 vMV;
         void main(){
           vAge = aAge; vSeed = aSeed; vDens = aDens;
-          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); vMV = mvPosition.xyz;
           gl_Position = projectionMatrix * mvPosition;
           gl_PointSize = clamp((4.0 + aAge * 1.9) * uScale * projectionMatrix[1][1] * 0.5 * resolution_y / max(-mvPosition.z, 1.0), 0.0, 900.0);
           if (aAge < 0.0) gl_PointSize = 0.0;
@@ -483,7 +488,7 @@ class ExhaustPlume {
         #include <common>
         #include <fog_pars_fragment>
         #include <logdepthbuf_pars_fragment>
-        uniform sampler3D tNoise; uniform vec3 uCol, uLit; varying float vAge, vSeed, vDens;
+        uniform sampler3D tNoise; uniform vec3 uCol, uLit, uSunV, uSunE, uSky; varying float vAge, vSeed, vDens; varying vec3 vMV;
         void main(){
           #include <logdepthbuf_fragment>
           vec2 q = gl_PointCoord * 2.0 - 1.0; float r = length(q);
@@ -491,8 +496,14 @@ class ExhaustPlume {
           vec4 n = texture(tNoise, vec3(q * 0.4 + vSeed * 7.0, vSeed + vAge * 0.02)), n2 = texture(tNoise, vec3(q * 1.15 + vSeed * 3.0, vSeed * 2.0 + vAge * 0.05));
           float edge = (1.0 - r) * (0.35 + 1.2 * n.g) - 0.42 * n2.b - 0.12 * n2.a;
           float a = smoothstep(0.0, 0.45, edge) * vDens * (1.0 - smoothstep(14.0, 42.0, vAge)) * smoothstep(0.0, 1.5, vAge);
-          // lit from the sun side, darker in the core and when young (soot)
-          vec3 col = mix(uCol, uLit, smoothstep(-0.3, 0.8, q.y * 0.5 + 0.5 + n.g * 0.4) * smoothstep(0.0, 22.0, vAge));
+          // lit like a lump of smoke: a pseudo-normal from the puff's disc, the sun's own colour and direction (view space) on its sunny side, the sky on
+          // the other; dark soot while it is young, paler as it dilutes; thin edges lit from behind glow (forward scattering)
+          vec3 nrm = normalize(vec3(q, sqrt(max(1.0 - r * r, 0.0)) * 0.8 + n.g * 0.3));
+          float wrapL = clamp(dot(nrm, uSunV) * 0.5 + 0.5, 0.0, 1.0);
+          float alb = mix(0.12, 0.45, smoothstep(0.0, 24.0, vAge));
+          vec3 vd = normalize(vMV);
+          float fs = pow(max(dot(vd, uSunV), 0.0), 5.0) * (1.0 - smoothstep(0.0, 0.7, a));
+          vec3 col = alb * (uSky * (0.55 + 0.45 * (nrm.y * 0.5 + 0.5)) + uSunE * (wrapL * wrapL * 0.95 + fs * 1.4));
           gl_FragColor = vec4(col, a);
           #include <colorspace_fragment>
           #include <fog_fragment>
@@ -502,6 +513,12 @@ class ExhaustPlume {
     this.mat.vertexShader = 'uniform float viewportH;\n' + this.mat.vertexShader;
     this.pts = new THREE.Points(g, this.mat); this.pts.frustumCulled = false; this.pts.renderOrder = 4;
     scene.add(this.pts);
+  }
+  // the sun's direction in view space and its colour as radiance for a diffuse surface (intensity/π): called every frame
+  light() {
+    const U = this.mat.uniforms, sun = ENV.sun;
+    U.uSunV.value.copy(ENV.sunDir).transformDirection(camera.matrixWorldInverse);
+    U.uSunE.value.copy(sun.color).multiplyScalar(sun.intensity / Math.PI);
   }
   // origin: world position of the funnel top; wind: world velocity of the air [m/s]; rate: puffs/s; dens: 0..1
   update(dt, origin, wind, rate, dens, ship) {
