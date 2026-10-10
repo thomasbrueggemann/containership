@@ -7,8 +7,8 @@ described in the README (*Rendering*); this file records where things stand, wha
 
 - `main` = `origin/main` = `ac00606` (pushed 2026-10-10, the Pages deploy ran green): HDR pipeline, volumetric clouds, sea and bow waves,
   weathering, port shadows, culling, paved ground, vessels, terminal and landscape detail.
-- Branch `claude/realistic-game-graphics-185717` is **14 commits ahead of `origin/main`, committed but neither merged nor pushed** (a push to
-  `main` deploys the live game, so it waits for a decision): navigation lights, night cloud glow, the AO stripe fix, temporally averaged clouds,
+- Branch `claude/realistic-game-graphics-185717` is **ahead of `origin/main` by the commits listed by `git log origin/main..HEAD` (about fifteen),
+  committed but neither merged nor pushed** (a push to `main` deploys the live game, so it waits for a decision): navigation lights, night cloud glow, the AO stripe fix, temporally averaged clouds,
   weathered container palette, sea phase drift, mooring ropes, red night lighting in the wheelhouse, contact darkening of the water, engine
   casing and pilot ladder, sky haze and lit funnel smoke, sparse salt-spray, tooling and this file. `git log origin/main..HEAD` lists them.
 - Crew bodies and gait: see the last section.
@@ -115,7 +115,7 @@ Leftover headless Chrome processes: kill them by PID, never with `pkill -f` (it 
 
 ## Decisions waiting for you
 
-1. Merge the 14 branch commits to `main` and push (this deploys the live game).
+1. Merge the branch's commits to `main` and push (this deploys the live game).
 2. Whether to keep the Retina default of starting the governor one level down.
 3. The crew work below: integrate, or discard.
 
