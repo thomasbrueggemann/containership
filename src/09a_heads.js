@@ -6,6 +6,9 @@
 // Female crew get the head & hair of the "female02" figure (Reallusion iClone, three.js
 // example asset) – the male scan cannot be morphed convincingly into a woman.
 // ============================================================================
+// The eye: a globe of radius R (scan units, 0.048 m each: 0.29 ≈ 14 mm, a touch large so the lids can wrap it) centred dz behind the closed-lid plane and dy under the
+// scan's eye point; the lid margins are put ON its surface (process()), so the globe sits in the lids instead of showing through a hole in a shell.
+const EYE = { R: 0.29, dz: 0.24, dy: -0.03, a: 0.27, bU: 0.094, bL: 0.108 };
 const HEADS = {
   ready: false, femaleReady: false, S: 0.048,
   BASE: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/LeePerrySmith/',
@@ -79,15 +82,18 @@ const HEADS = {
     const eL = eye(0.426), eR = eye(0.574);
     // the eye in the +x half of the scan
     this.eyes = [eL, eR];
-    const a = 0.31, b = 0.108, yOff = -0.025;
-    this.eyeShape = { a, b, yOff };
+    const a = EYE.a, mid = (eL.x + eR.x) / 2;
+    // the almond: centre height, upper and lower half-heights at du (−1..1 across the opening); the outer corner is a little higher than the inner one
+    const shape = (e, du) => { const out = Math.sign(e.x - mid), k = Math.sqrt(1 - du * du); return [e.y + EYE.dy + 0.035 * du * out, EYE.bU * k * (1 - 0.1 * du * du), EYE.bL * k * (1 - 0.2 * du * du)]; };
+    // a point of the lid margin lies on the globe: its depth follows the sphere (corners are held back so the canthi stay shallow clefts)
+    const onGlobe = (e, x, y) => { const dx = x - e.x, dy = y - (e.y + EYE.dy); return (e.z - EYE.dz) + Math.max(Math.sqrt(Math.max(EYE.R * EYE.R - dx * dx - dy * dy, 0)), 0.16) + 0.004; };
+    // the almond itself is cut out of the scan (its mesh is dense, ~0.04 units, so this is clean)
     const inOpening = (x, y, z) => {
       for (const e of this.eyes) {
         if (z < e.z - 0.45) continue;
         const du = (x - e.x) / a; if (Math.abs(du) >= 1) continue;
-        const out = Math.sign(e.x - (eL.x + eR.x) / 2);
-        const yc = e.y + yOff + 0.035 * du * out;
-        if (Math.abs(y - yc) < b * Math.sqrt(1 - du * du) * (1 - 0.15 * du * du)) return true;
+        const [yc, hU, hL] = shape(e, du), dy = y - yc;
+        if (dy >= 0 ? dy < hU : -dy < hL) return true;
       }
       return false;
     };
@@ -110,21 +116,24 @@ const HEADS = {
       keep.push(ia, ib, ic);
       if (hairline(cx, cy, cz) > -0.35) hair.push(ia, ib, ic);
     }
-    // snap the ragged cut edge onto a smooth almond and tuck it inwards (lid thickness)
+    // The lids. The boundary vertices (kept vertices that touched a removed triangle) are put on the almond by their ANGLE round the eye (snapping them by column made them pile up
+    // into fans at the corners), on the globe's surface; and the skin round the opening is lifted wherever the globe would stand proud of it, so the lids wrap the eyeball instead of
+    // the eyeball showing through the cheek below.
     const used = new Uint8Array(P.count); for (const v of keep) used[v] = 1;
     const cut = new Uint8Array(P.count);
     for (let t = 0; t < I.length; t += 3) { const ia = I[t], ib = I[t + 1], ic = I[t + 2]; const cx = (P.getX(ia) + P.getX(ib) + P.getX(ic)) / 3, cy = (P.getY(ia) + P.getY(ib) + P.getY(ic)) / 3, cz = (P.getZ(ia) + P.getZ(ib) + P.getZ(ic)) / 3; if (cy >= -1.35 && inOpening(cx, cy, cz)) { cut[ia] = cut[ib] = cut[ic] = 1; } }
     const Pn = P.clone();
     for (let i = 0; i < P.count; i++) {
-      if (!(used[i] && cut[i])) continue;
       const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
-      const e = Math.abs(x - eL.x) < Math.abs(x - eR.x) ? eL : eR;
-      const out = Math.sign(e.x - (eL.x + eR.x) / 2);
-      const du = clamp((x - e.x) / a, -0.985, 0.985);
-      const yc = e.y + yOff + 0.035 * du * out;
-      const side = y >= yc ? 1 : -1;
-      const h = b * Math.sqrt(1 - du * du) * (1 - 0.15 * du * du);
-      Pn.setXYZ(i, e.x + du * a, yc + side * h, z - 0.05);
+      const e = Math.abs(x - eL.x) < Math.abs(x - eR.x) ? eL : eR, cy0 = e.y + EYE.dy;
+      if (used[i] && cut[i]) {
+        const ph = Math.atan2((y - cy0) / 0.12, (x - e.x) / a), du = Math.cos(ph) * 0.985, [yc, hU, hL] = shape(e, du);
+        const nx = e.x + du * a, ny = Math.sin(ph) >= 0 ? yc + hU : yc - hL;
+        Pn.setXYZ(i, nx, ny, onGlobe(e, nx, ny));
+      } else if (used[i] && z > e.z - 0.3 && Math.abs(x - e.x) < EYE.R && Math.abs(y - cy0) < EYE.R) {         // the outer skin only (the scan has an inner socket layer behind it)
+        const dx = x - e.x, dy = y - cy0, r2 = dx * dx + dy * dy;
+        if (r2 < EYE.R * EYE.R - 1e-4) Pn.setZ(i, Math.max(z, (e.z - EYE.dz) + Math.sqrt(EYE.R * EYE.R - r2) + 0.012));
+      }
     }
     // taper the scan's shoulder flare into a round neck that disappears inside the collar
     for (let i = 0; i < Pn.count; i++) {
@@ -141,12 +150,10 @@ const HEADS = {
     head.setIndex(keep);
     this.headGeo = head;
     this.hairIdx = hair; this.keepIdx = keep; this.N = N; this.U = U; this.hairline = hairline;
-    // eyelid lash lines following the upper and lower edges of each opening
-    const sampleZ = (x, y) => { let best = 1e9, bz = 0; for (let i = 0; i < Pn.count; i++) { if (!used[i]) continue; const d = Math.hypot(Pn.getX(i) - x, Pn.getY(i) - y); if (Pn.getZ(i) > 0.8 && d < best) { best = d; bz = Pn.getZ(i); } } return bz; };
+    // eyelid lash lines following the upper and lower edges of each opening, on the margin that now lies on the globe
     this.lashGeos = this.eyes.map((e) => {
-      const out = Math.sign(e.x - (eL.x + eR.x) / 2);
-      const mk = (sgn, r) => { const pts = []; for (let k = 0; k <= 16; k++) { const du = -1 + 2 * k / 16; const yc = e.y + yOff + 0.035 * du * out; const zs = sampleZ(e.x + du * a, yc + sgn * b * Math.sqrt(1 - du * du) * (1 - 0.15 * du * du)); pts.push(new THREE.Vector3(e.x + du * a, yc + sgn * (b * Math.sqrt(1 - du * du) * (1 - 0.15 * du * du) + r * 0.5), zs - 0.03)); } return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, r, 5); };
-      return [mk(1, 0.026), mk(-1, 0.01)];
+      const mk = (sgn, r) => { const pts = []; for (let k = 0; k <= 16; k++) { const du = -1 + 2 * k / 16, [yc, hU, hL] = shape(e, du), x = e.x + du * a, y = sgn > 0 ? yc + hU : yc - hL; pts.push(new THREE.Vector3(x, y + sgn * r * 0.4, onGlobe(e, x, y) + r * 0.3)); } return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, r, 5); };
+      return [mk(1, 0.017), mk(-1, 0.007)];
     });
   },
   // The scans' necks are narrow, straight tubes (the female model's is 7 cm across): widen everything below the jaw, from w = 0 at y0 to full
@@ -236,7 +243,8 @@ const HEADS = {
         pos.push(x + N.getX(i) * t, y + N.getY(i) * t, z + N.getZ(i) * t);
         uv.push(this.U.getX(i), this.U.getY(i));
         // alpha fades across the hairline; alphaTest turns it into a smooth cut edge
-        col.push(1, 1, 1, smooth(-0.07, 0.17, d));
+        const k = 0.52 + 0.48 * smooth(0.0, 0.9, d);                    // dark at the roots along the hairline, lighter on top: the hair has depth
+        col.push(k, k, k, smooth(-0.05, 0.13, d));
         map.set(i, map.size);
       }
       out.push(map.get(i));
@@ -247,9 +255,24 @@ const HEADS = {
     g.setIndex(out); g.computeVertexNormals();
     return g;
   },
+  // The scan's tangent normal map has the seam of the closed lids pressed into it, which the opening we cut leaves as a thin dark groove running on towards the
+  // nose: flatten the map round both eye centres (a feathered patch of 'straight up'), once, on a copy.
+  flatNormal() {
+    if (this._nrmF) return this._nrmF;
+    const im = this.nrm.image, W = Math.min(im.width, 2048), H = Math.min(im.height, 2048), c = makeCanvas(W, H), x = c.getContext('2d');
+    x.drawImage(im, 0, 0, W, H);
+    for (const cu of [0.426, 0.574]) {
+      const ex = cu * W, ey = (1 - 0.705) * H, rx = 0.062 * W, ry = 0.016 * H, g = x.createRadialGradient(0, 0, 0, 0, 0, 1);
+      g.addColorStop(0, 'rgba(128,128,255,1)'); g.addColorStop(0.7, 'rgba(128,128,255,1)'); g.addColorStop(1, 'rgba(128,128,255,0)');
+      x.save(); x.translate(ex, ey); x.scale(rx, ry); x.fillStyle = g; x.beginPath(); x.arc(0, 0, 1, 0, 7); x.fill(); x.restore();
+    }
+    return (this._nrmF = canvasTexture(c, { linear: true }));
+  },
   skinTexture(o) {
     const c = makeCanvas(1024, 1024), x = c.getContext('2d');
     x.drawImage(this.col, 0, 0, 1024, 1024);
+    // the scan has closed eyes: the seam of the lids is painted on the skin, and the opening we cut shows only its middle, so a thin dark line ran on towards the nose
+    for (const cu of [0.426, 0.574]) { const ex = cu * 1024, ey = (1 - 0.705) * 1024; x.save(); x.beginPath(); x.ellipse(ex, ey, 64, 11, 0, 0, 7); x.clip(); x.globalAlpha = 0.92; x.drawImage(c, ex - 64, ey - 26, 128, 22, ex - 64, ey - 11, 128, 22); x.restore(); }
     const skin = x.getImageData(560, 360, 1, 1).data;
     const skinCol = `rgb(${skin[0]},${skin[1]},${skin[2]})`;
     if (o.shave !== false) {
@@ -314,32 +337,35 @@ const HEADS = {
     x.putImageData(img, 0, 0);
   },
   hairTexture(col, seed = 1, long = false) {
-    const c = makeCanvas(512, 512), x = c.getContext('2d');
+    const Z = 2, N = 512 * Z, c = makeCanvas(N, N), x = c.getContext('2d');      // 1024 px: on the forehead the texture is magnified a lot, and at 512 the hairline broke up into blocks
     // alpha 0.6–1 strand noise feathers the hairline against the vertex-alpha ramp (alphaTest 0.5)
-    x.globalAlpha = 0.6; x.fillStyle = col; x.fillRect(0, 0, 512, 512); x.globalAlpha = 1;
+    x.globalAlpha = 0.6; x.fillStyle = col; x.fillRect(0, 0, N, N); x.globalAlpha = 1;
     const R = mulberry32(seed);
-    x.strokeStyle = col; x.lineWidth = 1.4;
+    x.strokeStyle = col; x.lineWidth = 1.4 * Z * 0.8;
     const len = long ? 4 : 1;   // long, combed strands vs short cropped hair
-    for (let i = 0; i < 7000; i++) { const px = R() * 512, py = R() * 512; x.beginPath(); x.moveTo(px, py); x.lineTo(px + (R() - 0.5) * 3, py + (5 + R() * 9) * len); x.stroke(); }
-    for (let i = 0; i < 9000; i++) {
-      const px = R() * 512, py = R() * 512;
-      x.strokeStyle = R() < 0.5 ? `rgba(0,0,0,${long ? 0.15 : 0.25})` : `rgba(255,255,255,${long ? 0.07 : 0.12})`; x.lineWidth = 0.8;
-      x.beginPath(); x.moveTo(px, py); x.lineTo(px + (R() - 0.5) * 4, py + (6 + R() * 10) * len); x.stroke();
+    for (let i = 0; i < 7000 * Z * Z; i++) { const px = R() * N, py = R() * N; x.beginPath(); x.moveTo(px, py); x.lineTo(px + (R() - 0.5) * 3 * Z, py + (5 + R() * 9) * len * Z); x.stroke(); }
+    for (let i = 0; i < 9000 * Z * Z; i++) {
+      const px = R() * N, py = R() * N;
+      x.strokeStyle = R() < 0.5 ? `rgba(0,0,0,${long ? 0.15 : 0.25})` : `rgba(255,255,255,${long ? 0.07 : 0.12})`; x.lineWidth = 0.8 * Z * 0.8;
+      x.beginPath(); x.moveTo(px, py); x.lineTo(px + (R() - 0.5) * 4 * Z, py + (6 + R() * 10) * len * Z); x.stroke();
     }
     return canvasTexture(c);
   },
   irisTexture(col) {
     const W = 256, H = 128, c = makeCanvas(W, H), x = c.getContext('2d');
     const g = x.createRadialGradient(W * 0.25, H * 0.5, 4, W * 0.25, H * 0.5, W * 0.3);
-    g.addColorStop(0, '#fbfaf6'); g.addColorStop(0.7, '#efe8e2'); g.addColorStop(1, '#d9b9b0');
+    g.addColorStop(0, '#e9e2da'); g.addColorStop(0.6, '#d8cbc2'); g.addColorStop(1, '#a98a82');      // an eye's white is not white: warm grey, pinker and darker towards the corners
     x.fillStyle = g; x.fillRect(0, 0, W, H);
-    const sh = x.createLinearGradient(0, H * 0.25, 0, H * 0.5); sh.addColorStop(0, 'rgba(60,30,25,0.55)'); sh.addColorStop(1, 'rgba(60,30,25,0)'); x.fillStyle = sh; x.fillRect(0, 0, W, H * 0.5);
     x.save(); x.translate(W * 0.25, H * 0.5);
-    const ig = x.createRadialGradient(0, 0, 2, 0, 0, W * 0.075);
+    const ig = x.createRadialGradient(0, 0, 2, 0, 0, W * 0.064);
     ig.addColorStop(0, '#000'); ig.addColorStop(0.3, '#000'); ig.addColorStop(0.4, col); ig.addColorStop(0.85, col); ig.addColorStop(1, '#1a1410');
-    x.fillStyle = ig; x.beginPath(); x.arc(0, 0, W * 0.08, 0, 7); x.fill();
-    for (let k = 0; k < 60; k++) { const a = k / 60 * Math.PI * 2; x.strokeStyle = 'rgba(0,0,0,0.25)'; x.lineWidth = 0.6; x.beginPath(); x.moveTo(Math.cos(a) * 7, Math.sin(a) * 7); x.lineTo(Math.cos(a) * W * 0.07, Math.sin(a) * W * 0.07); x.stroke(); }
+    x.fillStyle = ig; x.beginPath(); x.arc(0, 0, W * 0.068, 0, 7); x.fill();
+    for (let k = 0; k < 60; k++) { const a = k / 60 * Math.PI * 2; x.strokeStyle = 'rgba(0,0,0,0.25)'; x.lineWidth = 0.6; x.beginPath(); x.moveTo(Math.cos(a) * 7, Math.sin(a) * 7); x.lineTo(Math.cos(a) * W * 0.06, Math.sin(a) * W * 0.06); x.stroke(); }
     x.restore();
+    // the lids sit on the globe: the upper one shades the top of it, iris included (so this goes on last), the lower one a little of the bottom, and the corners fall into shadow
+    const sh = x.createLinearGradient(0, H * 0.3, 0, H * 0.62); sh.addColorStop(0, 'rgba(40,20,16,0.85)'); sh.addColorStop(0.5, 'rgba(40,20,16,0.4)'); sh.addColorStop(1, 'rgba(40,20,16,0)'); x.fillStyle = sh; x.fillRect(0, 0, W, H * 0.62);
+    const sl = x.createLinearGradient(0, H * 0.66, 0, H * 0.78); sl.addColorStop(0, 'rgba(40,20,16,0)'); sl.addColorStop(1, 'rgba(40,20,16,0.28)'); x.fillStyle = sl; x.fillRect(0, H * 0.66, W, H * 0.34);
+    for (const sgn of [-1, 1]) { const cx = W * 0.25 + sgn * W * 0.13, sc = x.createLinearGradient(cx, 0, cx + sgn * W * 0.06, 0); sc.addColorStop(0, 'rgba(40,20,16,0)'); sc.addColorStop(1, 'rgba(40,20,16,0.55)'); x.fillStyle = sc; x.fillRect(sgn < 0 ? 0 : cx, 0, sgn < 0 ? cx : W - cx, H); }
     return canvasTexture(c);
   },
   // Softer, narrower jaw and chin for female crew (the scan is a male head).
@@ -367,6 +393,32 @@ const HEADS = {
     const g = this.headGeo.clone(); g.setAttribute('position', P);
     return (this._fem = g);
   },
+  // Spectacles for the scan heads (scan units, face towards +z): two rounded-rectangle rims standing a little in front of the eyes and wrapping round
+  // the face, a bridge arching over the nose, temples running back above the ears (kept outside the skull), clear lenses. Measured on the scan: eyes at
+  // z 1.76, nose bridge z 2.34 at eye height, skull half-width about the eye midline 1.25 at z 1.6, 1.43 at 0.8, 1.55–1.8 at the ears (z ≈ 0).
+  glasses(o) {
+    const [eL, eR] = this.eyes, c = (eL.x + eR.x) / 2, cy = (eL.y + eR.y) / 2, zf = 2.12, rx = 0.55, ry = 0.41, tube = 0.032;
+    const zAt = (x) => zf - 0.28 * ((x - c) / 1.5) ** 2;                                   // the frame wraps a little round the face
+    const frameMat = new THREE.MeshStandardMaterial({ color: o.glassesCol || 0x16181b, roughness: 0.38, metalness: 0.35, envMapIntensity: 0.9 });
+    const lensMat = new THREE.MeshPhysicalMaterial({ color: 0x9fb4b8, transparent: true, opacity: 0.045, roughness: 0.02, metalness: 0, envMapIntensity: 1.6, specularIntensity: 1, depthWrite: false, side: THREE.DoubleSide });
+    const grp = new THREE.Group(), curve = (pts, closed, r, seg) => new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, closed), seg, r, 6, closed), frameMat);
+    const sp = (v, e) => Math.sign(v) * Math.abs(v) ** e;
+    for (const e of this.eyes) {
+      const pts = []; for (let k = 0; k < 32; k++) { const t = k / 32 * Math.PI * 2, x = e.x + rx * sp(Math.cos(t), 2 / 2.7), y = cy + ry * sp(Math.sin(t), 2 / 2.7); pts.push(new THREE.Vector3(x, y, zAt(x))); }
+      grp.add(curve(pts, true, tube, 64));
+      const lens = new THREE.Mesh(new THREE.CircleGeometry(1, 28), lensMat), q = lens.geometry.attributes.position;
+      for (let i = 0; i < q.count; i++) { const x = e.x + q.getX(i) * rx * 0.97, y = cy + q.getY(i) * ry * 0.97; q.setXYZ(i, x, y, zAt(x) - 0.01); }
+      grp.add(lens);
+    }
+    const inner = (e) => e.x + Math.sign(c - e.x) * rx, outer = (e) => e.x - Math.sign(c - e.x) * rx;
+    grp.add(curve([new THREE.Vector3(inner(eL), cy + 0.2, zAt(inner(eL))), new THREE.Vector3(c - 0.12, cy + 0.27, 2.42), new THREE.Vector3(c, cy + 0.28, 2.46), new THREE.Vector3(c + 0.12, cy + 0.27, 2.42), new THREE.Vector3(inner(eR), cy + 0.2, zAt(inner(eR)))], false, tube * 1.1, 24));
+    for (const e of this.eyes) {                                                           // temples: hinge at the rim's outer edge, over the top of the ear
+      const sg = Math.sign(e.x - c), xo = outer(e);
+      grp.add(curve([new THREE.Vector3(xo, cy + 0.14, zAt(xo)), new THREE.Vector3(c + sg * 1.5, cy + 0.14, 1.3), new THREE.Vector3(c + sg * 1.78, cy + 0.1, 0.55), new THREE.Vector3(c + sg * 1.98, cy + 0.02, -0.1), new THREE.Vector3(c + sg * 1.98, cy - 0.4, -0.38)], false, tube * 0.9, 30));
+    }
+    grp.traverse((m) => { if (m.isMesh) m.castShadow = true; });
+    return grp;
+  },
   // Returns a group in head-local space (faces -z) and the matching skin colour
   build(o) {
     const S = this.S, grp = new THREE.Group();
@@ -375,21 +427,21 @@ const HEADS = {
     inner.position.set(0, -0.06 - ey * S, 0);
     grp.add(inner);
     const skinMap = this.skinTexture(o);
-    const skinMat = new THREE.MeshPhysicalMaterial({ map: skinMap, normalMap: this.nrm, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.52, metalness: 0, envMapIntensity: 0.5, specularIntensity: 0.6, sheen: 0.5, sheenRoughness: 0.75, sheenColor: new THREE.Color(0xff8f78) });
+    const skinMat = new THREE.MeshPhysicalMaterial({ map: skinMap, normalMap: this.flatNormal(), normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.52, metalness: 0, envMapIntensity: 0.5, specularIntensity: 0.6, sheen: 0.5, sheenRoughness: 0.75, sheenColor: new THREE.Color(0xff8f78) });
     const head = new THREE.Mesh(o.female ? (this._femX ||= this.extendNeck(this.femaleGeo(), 0.4, 1.4, 3, 0.12)) : (this._headX ||= this.extendNeck(this.headGeo, 0.4, 1.4, 3, 0.04, 0.025)), skinMat); head.castShadow = true; head.receiveShadow = true; inner.add(head);
     // eye sockets (dark back-face so the openings never show through the skull)
-    const socketMat = new THREE.MeshStandardMaterial({ color: 0x5a2c26, roughness: 0.6 });
-    const irisMat = new THREE.MeshStandardMaterial({ map: this.irisTexture(o.iris || '#5a3a22'), roughness: 0.12, metalness: 0, envMapIntensity: 0.8 });
+    const socketMat = new THREE.MeshStandardMaterial({ color: 0x8a4a40, roughness: 0.6 });      // the inner corner shows the pink caruncle, not a black hole
+    const irisMat = new THREE.MeshStandardMaterial({ map: this.irisTexture(o.iris || '#5a3a22'), roughness: 0.22, metalness: 0, envMapIntensity: 0.45 });
     const eyes = [];
     for (const e of this.eyes) {
-      const sock = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), socketMat); sock.position.set(e.x, e.y - 0.03, e.z - 0.42); inner.add(sock);
-      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.255, 24, 16), irisMat);
-      ball.position.set(e.x, e.y - 0.03, e.z - 0.23); inner.add(ball); eyes.push(ball);
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(EYE.R, 32, 24), irisMat);
+      ball.position.set(e.x, e.y + EYE.dy, e.z - EYE.dz); inner.add(ball); eyes.push(ball);
     }
     const lashMat = new THREE.MeshStandardMaterial({ color: 0x120c0a, roughness: 0.9 });
     for (const [up, lo] of this.lashGeos) { inner.add(new THREE.Mesh(up, lashMat)); inner.add(new THREE.Mesh(lo, lashMat)); }
+    if (o.glasses) inner.add(this.glasses(o));
     if (o.hairStyle && o.hairStyle !== 'bald') {
-      const hm = new THREE.MeshStandardMaterial({ map: this.hairTexture(o.hairCol || '#2a1c12', o.seed || 1, o.female), vertexColors: true, alphaTest: 0.5, roughness: 0.75, metalness: 0.0 });
+      const hm = new THREE.MeshStandardMaterial({ map: this.hairTexture(o.hairCol || '#2a1c12', o.seed || 1, o.female), vertexColors: true, alphaTest: 0.5, alphaToCoverage: true, roughness: 0.75, metalness: 0.0 });
       const hair = new THREE.Mesh(this.hairGeo(o.hairStyle, o.female), hm); hair.castShadow = true; inner.add(hair);
       if (o.hairStyle === 'bob') {
         // shoulder-length hair: a tapered curtain around the sides and back, open at the face

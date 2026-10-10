@@ -11,6 +11,7 @@
 //   walk     8-frame strip across one gait cycle (camera tracks the walker; --view side|front|back|three)       -> <id>_walk_0..7.png
 //   decks    the deck-station figures (forecastle and poop) from free cameras and from the orbit camera        -> decks_*.png
 //   probe    run page-side JavaScript (--jsfile) and print what it returns
+//   eye      one eye close from the front, 30°, 60°, the side and below (--eye 0|1)                                -> <id>_eye_front|a30|a60|side|below.png
 //   helm     the helmsman at the wheel from behind, the side and the front                                       -> ab_helm_back|side|front.png
 //   corner   a right-angle turn while walking, a frame every --every seconds -> <id>_corner_NN.png
 //   skate    foot-skate numbers while walking
@@ -314,6 +315,19 @@ try {
         await ev(`(() => { const m = CREW.byId('${idd}'); m.path = []; m.task = null; return true; })()`);
       }
       await ev('CS.showAll(); true');
+    }
+    if (scene === 'eye') {
+      // one eye (--eye 0|1) from the front, 30°, 60° and the side, and from below, close: how the globe sits in the lids and the socket
+      await persons(async (idd) => {
+        await ev(`CS.place('${idd}', ${S.x}, ${S.z}, 0); CS.settle(CREW.byId('${idd}'), 3); CS.neutralHead(CREW.byId('${idd}')); CS.freeze(CREW.byId('${idd}')); true`);
+        const p = await ev(`(() => { const m = CREW.byId('${idd}'), v = new CS.THREE.Vector3(); m.group.updateMatrixWorld(true); m.eyes[${+(opt.eye || 0)}].getWorldPosition(v); CS.bg().worldToLocal(v); return [v.x, v.y, v.z]; })()`);
+        const d = 0.3;
+        for (const [nm, deg, dy] of [['front', 0, 0], ['a30', 30, 0], ['a60', 60, 0], ['side', 88, 0], ['below', 0, -0.9]]) {
+          const out = p[0] < S.x ? -1 : 1, a = deg * Math.PI / 180;      // swing the camera round to the outer side of the chosen eye
+          await ev(`CS.cam(${p[0] + out * Math.sin(a) * d}, ${p[1] + d * dy}, ${p[2] - Math.cos(a) * d}, ${p[0]}, ${p[1]}, ${p[2]}, 12)`); await shot(`${idd}_eye_${nm}`);
+        }
+        await ev(`CS.unfreeze(CREW.byId('${idd}')); true`);
+      });
     }
     if (scene === 'helm') {
       // the helmsman at the wheel (hand steering): from behind-left, from the side and from the front
