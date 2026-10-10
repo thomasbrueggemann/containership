@@ -160,7 +160,11 @@ const POST = {
       vec3 P(vec2 uv, float w){ vec2 n = uv * 2.0 - 1.0; return vec3(n.x * uTanH * uAspect * w, n.y * uTanH * w, -w); }
       float ign(vec2 p){ return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
       void main(){
-        float w0 = W(vUv);
+        // this pass is half the resolution of the depth buffer: the centre of its texel is the corner between four depth pixels, and a nearest
+        // read there picks one of them by rounding – on a surface seen at a shallow angle neighbouring rows differ by centimetres, and the result
+        // was stripes. Read at the centre of one depth pixel instead (the top-left of the block).
+        vec2 uv0 = (floor(gl_FragCoord.xy) * 2.0 + 0.5) / uRes;
+        float w0 = W(uv0);
         if (w0 > uFar * 0.2) { gl_FragColor = vec4(1.0, 0.5, 0.5, 0.0); return; }
         // world radius → pixels; far surfaces (sub-pixel radius) and the distant fade need no occlusion at all – bail out before the expensive part
         float pxWorld = 2.0 * uTanH * w0 / uRes.y;
@@ -168,11 +172,17 @@ const POST = {
         float fade = smoothstep(2.0, 6.0, rpx) * (1.0 - smoothstep(200.0, 800.0, w0));
         if (fade <= 0.0) { gl_FragColor = vec4(1.0, 0.5, 0.5, w0); return; }
         vec2 px = 1.0 / uRes;
-        vec3 p0 = P(vUv, w0);
-        float wr = W(vUv + vec2(px.x, 0.0)), wl = W(vUv - vec2(px.x, 0.0)), wu = W(vUv + vec2(0.0, px.y)), wd = W(vUv - vec2(0.0, px.y));
-        vec3 dx = abs(wr - w0) < abs(wl - w0) ? P(vUv + vec2(px.x, 0.0), wr) - p0 : p0 - P(vUv - vec2(px.x, 0.0), wl);
-        vec3 dy = abs(wu - w0) < abs(wd - w0) ? P(vUv + vec2(0.0, px.y), wu) - p0 : p0 - P(vUv - vec2(0.0, px.y), wd);
-        vec3 n = normalize(cross(dx, dy));
+        vec3 p0 = P(uv0, w0);
+        float wr = W(uv0 + vec2(px.x, 0.0)), wl = W(uv0 - vec2(px.x, 0.0)), wu = W(uv0 + vec2(0.0, px.y)), wd = W(uv0 - vec2(0.0, px.y));
+        // The surface normal from the screen-space gradient of the INVERSE depth: on any plane 1/w is an affine function of the pixel position,
+        // so this is exact however grazing the view (differences of w itself are not linear in screen space, and the one-sided difference of
+        // a plane seen at a shallow angle tilts the normal enough to put the plane's own neighbours above it: stripes on every desk and deck).
+        // The smaller of the two one-sided differences is still taken, so that a depth edge does not smear into the normal.
+        float iw0 = 1.0 / w0, iwr = 1.0 / wr, iwl = 1.0 / wl, iwu = 1.0 / wu, iwd = 1.0 / wd;
+        float gx = (abs(iwr - iw0) < abs(iw0 - iwl) ? iwr - iw0 : iw0 - iwl) / (2.0 * px.x), gy = (abs(iwu - iw0) < abs(iw0 - iwd) ? iwu - iw0 : iw0 - iwd) / (2.0 * px.y);
+        vec2 xn = uv0 * 2.0 - 1.0;
+        vec3 n = normalize(vec3(gx / (uTanH * uAspect), gy / uTanH, gx * xn.x + gy * xn.y - iw0));
+        if (dot(n, p0) > 0.0) n = -n;                                // facing the camera
         float reff = rpx * pxWorld;
         float ao = 1.0;
         {
@@ -180,7 +190,7 @@ const POST = {
           for (int i = 0; i < 12; i++) {
             float t = (float(i) + 0.5) / 12.0;
             float a = rot + t * 6.2831853 * 2.4;
-            vec2 uv = vUv + vec2(cos(a), sin(a)) * (t * 0.85 + 0.15) * rpx * px;
+            vec2 uv = uv0 + vec2(cos(a), sin(a)) * (t * 0.85 + 0.15) * rpx * px;
             vec3 v = P(uv, W(uv)) - p0;
             float d = length(v) + 1e-4;
             float el = dot(v, n) / d;                              // sin of the elevation above the tangent plane
