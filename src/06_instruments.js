@@ -15,7 +15,7 @@ class Display {
     this.key = key; this.title = title; this.w = w; this.h = h; this.interval = 1 / hz; this.acc = Math.random() * this.interval; this.drawFn = draw;
     this.canvas = makeCanvas(w, h); this.ctx = this.canvas.getContext('2d');
     this.tex = canvasTexture(this.canvas, { aniso: 4 });
-    this.material = new THREE.MeshBasicMaterial({ map: this.tex, toneMapped: false });
+    this.material = displayMaterial(new THREE.MeshBasicMaterial({ map: this.tex }));
     this.force = true;
   }
   update(dt) {

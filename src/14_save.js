@@ -104,7 +104,7 @@ const SAVE = {
       }
       Object.assign(t, { x: o.x, z: o.z, psi: o.psi, sog: o.sog, cog: o.cog, active: o.active, wpi: o.wpi, tgt: o.tgt || undefined });
       if (o.done) { t.done = true; t.trigger = null; }              // already sailed past, don't re-trigger
-      t.grp.visible = t.active; t.grp.position.set(t.x, 0, t.z); t.grp.rotation.y = -t.psi; t.wakeObj.pts = [];
+      t.grp.visible = t.active; t.grp.position.set(t.x, 0, t.z); t.grp.rotation.y = -t.psi; t.wakeObj.pts = []; t.wakeObj.primed = false;
     }
     Object.assign(PILOTBOAT, snap.pilotboat); PILOTBOAT._nag = false; PILOTBOAT.wake.pts = [];
     PILOTBOAT.grp.position.set(PILOTBOAT.x, 0, PILOTBOAT.z); PILOTBOAT.grp.rotation.y = -PILOTBOAT.psi;
@@ -127,7 +127,7 @@ const SAVE = {
     if (G.thrReady) BR.controls.btStart.setLit(true, 0x40ff80); else if (G.thrStarting) BR.controls.btStart.setLit(true, 0xffb020);
     if (G.pendingMode) BR.controls.engBtns[G.pendingMode].setLit(true, 0xffb020);
     // own ship wake & player
-    G.wake.pts = [];
+    G.wake.pts = []; G.wake.primed = false;
     const p = snap.player; PLAYER.place(p.x, p.z, p.yaw); PLAYER.pitch = p.pitch;
     if (BR.seats[p.seat]) PLAYER.sit(BR.seats[p.seat], true);
     if (p.mode === 'orbit') PLAYER.toggleOrbit();

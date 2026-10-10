@@ -198,7 +198,7 @@ const TRAFFIC = {
       if (o.tugs) this.harbourTugs(o, dt);
       const bob = seaState().bob, small = o.L < 60;
       rideSwell(o.grp, o.x, o.z, o.psi, o.L, o.B, small ? Math.sin(G.simT * 0.8 + o.L) * 0.1 * bob : 0, small ? Math.sin(G.simT * 1.3 + o.L) * 0.02 * bob : 0);
-      o.wakeObj.update(dt, o.x - Math.sin(o.psi) * o.L / 2, o.z + Math.cos(o.psi) * o.L / 2, -Math.sin(o.psi), Math.cos(o.psi), clamp(o.sog / 4, 0, 0.8));
+      o.wakeObj.update(dt, o.x - Math.sin(o.psi) * o.L / 2, o.z + Math.cos(o.psi) * o.L / 2, -Math.sin(o.psi), Math.cos(o.psi), clamp(o.sog / 4, 0, 0.8), o.sog);
       // collision with own ship
       const s = G.ship; const dist = Math.hypot(o.x - s.x, o.z - s.z);
       if (dist < 200 + o.L / 2) {
@@ -277,15 +277,44 @@ function buildSmallVessel(name, hullCol, L, B, stripe) {
   g.add(new THREE.Mesh(hullGeometry(o), new THREE.MeshStandardMaterial({ map: hullTexture(o), roughness: 0.5 })));
   g.add(deckMesh(o, o.D, new THREE.MeshStandardMaterial({ color: 0x777a7a }), 0, 0.9));
   g.add(transomMesh(o, new THREE.MeshStandardMaterial({ color: hullCol })));
-  const b = new Batcher();
-  const white = new THREE.MeshStandardMaterial({ color: 0xf0f0ee, roughness: 0.5 });
-  b.box(white, B * 0.6, L * 0.08, L * 0.25, 0, o.D + L * 0.04, -L * 0.05);
-  b.box(new THREE.MeshStandardMaterial({ color: 0x1b2833, roughness: 0.1, metalness: 0.6 }), B * 0.62, L * 0.03, L * 0.2, 0, o.D + L * 0.065, -L * 0.07);
-  b.box(white, 0.3, L * 0.25, 0.3, 0, o.D + L * 0.15, L * 0.05);
-  if (stripe) b.box(new THREE.MeshStandardMaterial({ color: stripe }), B * 1.01, 0.6, L * 0.3, 0, o.D - 0.4, -L * 0.1);
-  if (name.startsWith('ZEE')) { b.box(new THREE.MeshStandardMaterial({ color: 0x333333 }), 0.3, L * 0.35, 0.3, 0, o.D + L * 0.17, L * 0.25); b.box(new THREE.MeshStandardMaterial({ color: 0x333333 }), 0.25, 0.25, L * 0.35, 0, o.D + L * 0.3, L * 0.2, 0, 0.6); }
+  const b = new Batcher(), y0 = o.D;
+  const kind = name.startsWith('ZEE') ? 'trawler' : name.startsWith('PATROL') ? 'patrol' : 'yacht';
+  const white = plainMat(0xf0f0ee), grey = plainMat(0xc9cdcf, 0.55), dark = plainMat(0x33393d, 0.6, 0.3), black = plainMat(0x151515, 0.95), glass = plainMat(0x1b2833, 0.1, 0.6);
+  // deckhouse: a base, glass all round, an overhanging roof – the trawler's forward, the others amidships; the yacht gets a flybridge
+  const hw = B * 0.3, hd = L * (kind === 'yacht' ? 0.16 : kind === 'trawler' ? 0.1 : 0.13), cz = kind === 'trawler' ? -L * 0.14 : -L * 0.04;
+  const hb = L * (kind === 'yacht' ? 0.05 : 0.045), hg = L * 0.04, ch = hd * 0.45;
+  const house = (w, d, z, y, hBase, hGlass, mat) => {
+    const p = chamfered(w, d, z, Math.min(w, d) * 0.45);
+    b.add(prism(p, y, hBase), mat); b.add(prism(p, y + hBase, hGlass), glass);
+    for (const [x, zz] of p) b.box(mat, 0.1, hGlass, 0.1, x, y + hBase + hGlass / 2, zz);
+    b.add(prism(chamfered(w + 0.12, d + 0.12, z, Math.min(w, d) * 0.5), y + hBase + hGlass, 0.1), mat);
+    return y + hBase + hGlass + 0.1;
+  };
+  let top = house(hw, hd, cz, y0, hb, hg, white);
+  if (kind === 'yacht') top = house(hw * 0.72, hd * 0.6, cz + hd * 0.25, top, hb * 0.7, hg * 0.9, white);
+  // mast with radar and a light; funnel and fender belt on the working boats
+  const mz = cz + hd * 0.5, mh = L * 0.13;
+  b.cyl(kind === 'trawler' ? dark : white, 0.1, 0.14, mh, 0, top + mh / 2, mz, 8);
+  b.box(grey, L * 0.04, 0.05, L * 0.025, 0, top + mh * 0.7, mz); b.box(dark, L * 0.06, 0.07, 0.15, 0, top + mh * 0.85, mz);
+  if (kind !== 'yacht') {
+    b.add(roundBox(B * 0.18, L * 0.07, L * 0.07, 0.15), kind === 'patrol' ? white : dark, MX(0, top + L * 0.025, cz + hd + L * 0.05));
+    const ell = []; for (let i = 0; i < 28; i++) { const a = i / 28 * Math.PI * 2; ell.push(new THREE.Vector3(Math.cos(a) * B * 0.49, y0 - 0.15, Math.sin(a) * L * 0.46 - L * 0.01)); }
+    b.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(ell, true), 40, Math.max(0.12, L * 0.008), 6, true), black);
+  }
+  if (stripe) b.box(plainMat(stripe), B * 1.01, 0.6, L * 0.3, 0, y0 - 0.4, -L * 0.1);
+  if (kind === 'trawler') {
+    // working deck aft: net drum, hatch, a gantry over the stern and derrick booms
+    b.cyl(dark, L * 0.04, L * 0.04, B * 0.5, 0, y0 + L * 0.05, L * 0.1, 12, 0, 0, Math.PI / 2);
+    b.box(dark, B * 0.3, 0.35, L * 0.1, 0, y0 + 0.18, L * 0.28);
+    for (const sx of [-1, 1]) b.box(dark, 0.25, L * 0.22, 0.25, sx * B * 0.38, y0 + L * 0.11, L * 0.38);
+    b.box(dark, B * 0.8, 0.25, 0.25, 0, y0 + L * 0.22, L * 0.38);
+    b.box(dark, 0.25, 0.25, L * 0.35, 0, y0 + L * 0.3, L * 0.2, 0, 0.6);
+    b.box(dark, 0.3, L * 0.35, 0.3, 0, y0 + L * 0.17, L * 0.25);
+  }
+  if (kind === 'yacht') b.add(roundBox(B * 0.5, 0.25, L * 0.12, 0.1), plainMat(0x2b6cb0), MX(0, y0 + 0.3, L * 0.3));      // sun pads on the aft deck
+  deckRails(b, grey, o, kind === 'yacht' ? 2 : 3);
   b.build(g, { dynamic: true, cast: false });
-  glowSprite(0xffffff, 3, g, 0, o.D + L * 0.28, L * 0.05);
+  glowSprite(0xffffff, 3, g, 0, top + mh, mz);
   return g;
 }
 

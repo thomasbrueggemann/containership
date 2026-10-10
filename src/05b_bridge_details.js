@@ -264,7 +264,7 @@ function addBridgeDetails(bg, M, B) {
     const head = new THREE.Group(); head.position.set(0, 2.47, -4.95); head.rotation.x = -0.6; head.scale.setScalar(0.8); bg.add(head);
     const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.12, 24), M.black); hb.rotation.x = Math.PI / 2; head.add(hb);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.015, 8, 30), M.brass); ring.position.z = 0.062; head.add(ring);
-    const card = new THREE.Mesh(new THREE.CircleGeometry(0.135, 40), new THREE.MeshBasicMaterial({ map: compassCardTexture(), toneMapped: false, color: ENV.night ? 0x886644 : 0xffffff }));
+    const card = new THREE.Mesh(new THREE.CircleGeometry(0.135, 40), displayMaterial(new THREE.MeshBasicMaterial({ map: compassCardTexture(), color: ENV.night ? 0x886644 : 0xffffff })));
     card.position.z = 0.064; head.add(card);
     const lub = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.05, 0.004), new THREE.MeshBasicMaterial({ color: 0xcc2222 })); lub.position.set(0, 0.11, 0.068); head.add(lub);
     interactive(hb, { name: 'Magnetic compass (reflector)', hint: 'Periscope view of the standard magnetic compass on the compass deck. Deviation card on the chart table.' });
@@ -308,7 +308,7 @@ function addBridgeDetails(bg, M, B) {
     B.cyl(M.greyBox, 0.24, 0.26, 0.04, x, 0.02, z, 20);
     const g = new THREE.Group(); g.position.set(x, 1.1, z); bg.add(g);
     const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.14, 0.1, 28), M.black); g.add(bowl);
-    const card = new THREE.Mesh(new THREE.CircleGeometry(0.18, 40), new THREE.MeshBasicMaterial({ map: cardTex, toneMapped: false, color: ENV.night ? 0x886644 : 0xffffff }));
+    const card = new THREE.Mesh(new THREE.CircleGeometry(0.18, 40), displayMaterial(new THREE.MeshBasicMaterial({ map: cardTex, color: ENV.night ? 0x886644 : 0xffffff })));
     card.rotation.x = -Math.PI / 2; card.position.y = 0.052; g.add(card);
     const ring = new THREE.Group(); ring.position.y = 0.07; g.add(ring);
     ring.add(new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.012, 8, 36).rotateX(Math.PI / 2), M.brass));

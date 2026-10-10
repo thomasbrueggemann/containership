@@ -73,6 +73,21 @@ function depthAt(x, z) {
   return Math.max(d, 1.2);
 }
 
+// Sea-bed depth sampled on a coarse grid for the water shader (shoals turn the water green and make waves break).
+function bathyTexture() {
+  const X0 = -16800, X1 = 2000, Z0 = -4800, Z1 = 4800, S = 40;
+  const w = Math.ceil((X1 - X0) / S), h = Math.ceil((Z1 - Z0) / S), data = new Uint8Array(w * h * 4);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    let d = depthAt(X0 + (i + 0.5) * S, Z0 + (j + 0.5) * S);
+    if (d < 0) d = 24;                                    // land: must not read as a shoal (no surf along the quay walls)
+    const v = clamp(d / 40, 0, 1) * 255, o = (j * w + i) * 4;
+    data[o] = data[o + 1] = data[o + 2] = v; data[o + 3] = 255;
+  }
+  const t = new THREE.DataTexture(data, w, h, THREE.RGBAFormat);
+  t.magFilter = t.minFilter = THREE.LinearFilter; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.needsUpdate = true;
+  return { tex: t, box: new THREE.Vector4(X0, Z0, 1 / (X1 - X0), 1 / (Z1 - Z0)) };
+}
+
 // fender/quay contact & allision (called by physics for each hull point)
 function worldContact(px, pz, vx, vz) {
   const k = 3.2e6, c = 2.6e7, mu = 0.25;
@@ -115,13 +130,22 @@ const MAT = {};
 function initMaterials() {
   const std = (c, r = 0.8, m = 0, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m, ...o });
   const tex = (k, rep) => { const t = groundTexture(k); t.repeat.set(rep, rep); return t; };
-  MAT.concrete = std(0xcfcfcb, 0.95, 0, { map: tex('concrete', 1 / 24) });
-  MAT.asphalt = std(0x8a8c8e, 0.95, 0, { map: tex('asphalt', 1 / 20) });
+  // paved ground: colour, normal and roughness maps that agree (see pavedTexture); the tile is 48 m / 40 m / 12 m
+  const paved = (kind, rep, color, ns) => {
+    const p = pavedTexture(kind), set = (t) => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, rep); return t; };
+    return p.normal ? std(color, 1, 0, { map: set(p.map), normalMap: set(p.normal), normalScale: new THREE.Vector2(ns, ns), roughnessMap: set(p.rough) })
+      : std(color, 0.95, 0, { map: set(p.map) });
+  };
+  MAT.concrete = paved('concrete', 1 / 48, 0xeeeeea, 0.9);
+  MAT.asphalt = paved('asphalt', 1 / 40, 0xe0e0e0, 1);
   MAT.grass = std(0xc4cc9a, 1, 0, { map: tex('grass', 1 / 30) });
   MAT.sand = std(0xd8c9a6, 1, 0, { map: tex('sand', 1 / 25) });
-  MAT.rock = std(0xd2cec4, 1, 0, { map: tex('rock', 1 / 14) });
-  MAT.rockBox = std(0xc4c0b6, 1, 0, { map: tex('rock', 1) });
-  MAT.quayWall = std(0x77756f, 0.95, 0, { map: tex('concrete', 1 / 12) });
+  // rock armour: one texture (and normal map) for the flat tops and the sloped boxes, both with UVs in metres (28 m tile)
+  const rk = rockTexture(), rkSet = (t) => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / 28, 1 / 28); return t; };
+  const rockMaps = rk.normal ? { map: rkSet(rk.map), normalMap: rkSet(rk.normal), normalScale: new THREE.Vector2(1.3, 1.3) } : { map: rkSet(rk.map) };
+  MAT.rock = std(0xd2cec4, 1, 0, rockMaps);
+  MAT.rockBox = std(0xc4c0b6, 1, 0, rockMaps);
+  MAT.quayWall = paved('wall', 1 / 12, 0xc8c6c0, 1);
   MAT.craneBlue = std(0x2a6aa3, 0.55, 0.35);
   MAT.craneWhite = std(0xe4e7e8, 0.55, 0.25);
   MAT.white = std(0xe9ecee, 0.6, 0.05);
@@ -137,6 +161,8 @@ function initMaterials() {
   MAT.glass = std(0x223a4c, 0.12, 0.7);
   MAT.lampOn = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.6, 2) });
   MAT.lampOff = std(0xdddddd, 0.3, 0.1);
+  MAT.lampRed = new THREE.MeshBasicMaterial({ color: new THREE.Color(3.2, 0.12, 0.08) });
+  MAT.lampAmber = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 2.2, 0.2) });
   MAT.turbine = std(0xf0f2f2, 0.5, 0.05);
   MAT.lineWhite = std(0xf5f5f0, 0.8);
   MAT.lineYellow = std(0xf2c21a, 0.8);
@@ -183,7 +209,7 @@ function initContainers() {
   CONTAINER.geo = containerGeometry();
   for (const k of ['maersk', 'generic', 'reefer']) {
     const a = containerAtlas(k);
-    CONTAINER[k] = new THREE.MeshStandardMaterial({ map: a.map, bumpMap: a.bump, bumpScale: 1.2, roughness: 0.62, metalness: 0.25 });
+    CONTAINER[k] = new THREE.MeshStandardMaterial({ map: a.map, normalMap: a.normal, normalScale: new THREE.Vector2(1, 1), roughnessMap: a.orm, metalnessMap: a.orm, roughness: 1, metalness: 1 });
   }
 }
 // list items: {x,y,z,ry,kind,color} — y is bottom of box
@@ -261,7 +287,7 @@ async function buildWorld(progress) {
     const nx = -dz / len * out, nz = dx / len * out;
     const cx = (a[0] + b[0]) / 2 + nx * 7, cz = (a[1] + b[1]) / 2 + nz * 7;
     const ang = Math.atan2(dx, dz);
-    B.add(BOX(18, 3, len + 10), MAT.rockBox, MX(cx, 1.6, cz, 0, ang, 0).multiply(new THREE.Matrix4().makeRotationZ(-0.45 * out * Math.sign(dz || 1))));
+    B.add(boxUV(18, 3, len + 10, 1), MAT.rockBox, MX(cx, 1.6, cz, 0, ang, 0).multiply(new THREE.Matrix4().makeRotationZ(-0.45 * out * Math.sign(dz || 1))));
   };
   for (const poly of [GEO.breakN, GEO.breakS]) {
     for (let i = 0; i < poly.length - 1; i++) {
@@ -276,7 +302,7 @@ async function buildWorld(progress) {
           const nx = Math.cos(ang) * off, nz = -Math.sin(ang) * off;
           // skip armour that ends up inside the land
           if (isLand(mx + nx * 14, mz + nz * 14)) continue;
-          B.add(BOX(16, 3.2, len / segs + 6), MAT.rockBox, MX(mx + nx * 6, 2.2, mz + nz * 6, 0, ang, off * 0.42));
+          B.add(boxUV(16, 3.2, len / segs + 6, 1), MAT.rockBox, MX(mx + nx * 6, 2.2, mz + nz * 6, 0, ang, off * 0.42));
           for (let r = 0; r < 5; r++) {
             const bx = mx + nx * rr(2, 11) + Math.sin(ang) * rr(-20, 20), bz = mz + nz * rr(2, 11) + Math.cos(ang) * rr(-20, 20);
             B.add(new THREE.DodecahedronGeometry(rr(1.2, 2.6), 0), MAT.rockBox, MX(bx, rr(1.5, 5), bz, rr(0, 3), rr(0, 3), 0));
@@ -338,7 +364,7 @@ async function buildWorld(progress) {
   // berthing aid system (laser distance displays)
   for (const [x, lab] of [[bt.x0 + 40, 'AFT'], [bt.x1 - 40, 'FWD']]) {
     const c = makeCanvas(512, 256); const t = canvasTexture(c);
-    const scr = new THREE.Mesh(new THREE.PlaneGeometry(9, 4.5), new THREE.MeshBasicMaterial({ map: t, toneMapped: false }));
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(9, 4.5), displayMaterial(new THREE.MeshBasicMaterial({ map: t })));
     scr.position.set(x, QUAY_H + 9, -709); root.add(scr);
     B.box(MAT.darkSteel, 9.8, 5.3, 0.6, x, QUAY_H + 9, -709.4);
     B.box(MAT.darkSteel, 0.4, 7, 0.4, x - 3, QUAY_H + 3.3, -709.8); B.box(MAT.darkSteel, 0.4, 7, 0.4, x + 3, QUAY_H + 3.3, -709.8);
@@ -433,7 +459,7 @@ async function buildWorld(progress) {
   for (const [x, z, h] of [[600, 2100, 110], [720, 2150, 90], [2400, 1800, 140]]) {
     B.cyl(MAT.white, 3, 4.5, h, x, QUAY_H + h / 2, z, 16);
     for (let k = 0; k < 4; k++) B.cyl(MAT.red, 3.2 - k * 0.2, 3.3 - k * 0.2, 8, x, QUAY_H + h - 6 - k * 22, z, 16);
-    WORLD.flashers.push(glowSprite(0xff2a1a, 30, root, x, QUAY_H + h + 3, z, '255,60,40'));
+    WORLD.flashers.push(glowSprite(0xff2a1a, 22, root, x, QUAY_H + h + 3, z, '255,60,40', 3));
   }
   // refinery flare
   B.cyl(MAT.steel, 1.6, 2.4, 90, 1800, QUAY_H + 45, 2600, 10);
@@ -561,6 +587,7 @@ async function buildWorld(progress) {
     b2.box(MAT.agv, 15, 1.1, 3.1, 0, 1.0, 0); b2.box(MAT.darkSteel, 15.2, 0.3, 3.2, 0, 0.45, 0);
     for (const dx of [-5.5, 5.5]) for (const dz of [-1.3, 1.3]) b2.cyl(MAT.black, 0.45, 0.45, 0.35, dx, 0.45, dz, 10, Math.PI / 2);
     b2.box(MAT.white, 0.4, 0.5, 2.6, 7.4, 1.4, 0); b2.box(MAT.white, 0.4, 0.5, 2.6, -7.4, 1.4, 0);
+    if (ENV.night) { b2.box(MAT.lampAmber, 0.35, 0.3, 0.35, 0, 1.75, 0); for (const dz of [-1.1, 1.1]) { b2.box(MAT.lampOn, 0.12, 0.22, 0.4, 7.62, 1.2, dz); b2.box(MAT.lampRed, 0.12, 0.2, 0.4, -7.62, 1.2, dz); } }
     b2.build(g, { dynamic: true });
     return g;
   };
@@ -569,6 +596,7 @@ async function buildWorld(progress) {
     b2.box(pick([MAT.red, MAT.white, MAT.craneBlue, MAT.green]), 2.5, 2.9, 2.5, 7.2, 1.95, 0); b2.box(MAT.glass, 2.52, 0.9, 1.2, 7.2, 2.6, 0.9);
     b2.box(MAT.darkSteel, 12.6, 0.4, 2.4, -0.6, 1.2, 0);
     for (const dx of [7.6, 4.2, -4.2, -5.6]) for (const dz of [-1.1, 1.1]) b2.cyl(MAT.black, 0.5, 0.5, 0.4, dx, 0.5, dz, 10, Math.PI / 2);
+    if (ENV.night) { for (const dz of [-0.95, 0.95]) { b2.box(MAT.lampOn, 0.12, 0.3, 0.5, 8.5, 1.15, dz); b2.box(MAT.lampRed, 0.12, 0.2, 0.4, -6.95, 1.2, dz); } b2.box(MAT.lampAmber, 0.3, 0.25, 0.3, 7.2, 3.5, 0); }
     b2.build(g, { dynamic: true });
     return g;
   };
@@ -655,10 +683,11 @@ function buildSTS(B, root, x, zq, rot, state, shipTop = 35, num = 1) {
   for (const u of [-3.2, 3.2]) { for (const t of [0.52, 0.97]) { const b = bp(t * Lb, 1.8); b.x = u; C.beam(dark, V(u * 0.95, ay, ax), b, 0.5); } C.beam(dark, V(u * 0.95, ay, ax), V(u, gy + 1.8, gl - 27), 0.5); }
   // stair tower up the landside leg
   for (let k = 0; k < 8; k++) { const y0 = H0 + 6 + k * 5.1, s = k % 2 ? 1 : -1; C.beam(MAT.yellow, V(10.7, y0, gl - 1.3 * s), V(10.7, y0 + 5.1, gl + 1.3 * s), 0.9, 0.15); C.box(MAT.steel, 1.5, 0.12, 3.4, 10.7, y0 + 5.1, gl); }
+  if (ENV.night) LAMPS.add(...P(0, gw - 14, gy + 4).toArray(), { col: [1, 0.86, 0.64], power: 11, range: 170, dir: [Math.sin(rot) * 0.62, -0.55, Math.cos(rot) * 0.62 + 0.0], cone: 0.3 });
   // floodlights under the girders, aviation lights
   for (const w of state === 'up' ? [gl - 6, gl + 10] : [gl - 6, gl + 10, gw + 20, gw + 40]) { const p = w > gw ? bp(w - gw - 3, -1.8) : V(0, gy - 1.9, w); C.box(ENV.night ? MAT.lampOn : MAT.lampOff, 1.4, 0.35, 0.9, 0, p.y, p.z); }
-  WORLD.flashers.push(glowSprite(0xff2a1a, 12, root, ...P(0, ax, ay + 1.5).toArray(), '255,50,30'));
-  { const tip = bp(Lb, 1.8); WORLD.flashers.push(glowSprite(0xff2a1a, 9, root, ...P(0, tip.z, tip.y).toArray(), '255,50,30')); }
+  WORLD.flashers.push(glowSprite(0xff2a1a, 7, root, ...P(0, ax, ay + 1.5).toArray(), '255,50,30', 3));
+  { const tip = bp(Lb, 1.8); WORLD.flashers.push(glowSprite(0xff2a1a, 6, root, ...P(0, tip.z, tip.y).toArray(), '255,50,30', 3)); }
   // trolley with hanging operator cab; spreader & headblock (animated on working cranes)
   const trolley = new THREE.Group(), tb = new Batcher();
   tb.box(white, 10, 3, 9, 0, 0, 0); tb.box(white, 3.2, 3, 3.2, 3.4, -3.8, 2); tb.box(MAT.glass, 3.3, 1.6, 3.3, 3.4, -4.4, 2);
@@ -698,7 +727,10 @@ function lightMast(B, root, x, z) {
   B.cyl(MAT.grey, 0.35, 0.6, 36, x, QUAY_H + 18, z, 8);
   B.box(MAT.darkSteel, 5, 0.8, 1.6, x, QUAY_H + 36, z);
   for (let k = -2; k <= 2; k++) B.box(ENV.night ? MAT.lampOn : MAT.lampOff, 0.8, 0.3, 1.2, x + k, QUAY_H + 35.5, z);
-  if (ENV.night) WORLD.lamps.push(glowSprite(0xffd9a0, 42, root, x, QUAY_H + 35, z, '255,215,160'));
+  if (ENV.night) {
+    WORLD.lamps.push(glowSprite(0xffd9a0, 34, root, x, QUAY_H + 35, z, '255,215,160', 6));
+    LAMPS.add(x, QUAY_H + 35, z, { col: [1.0, 0.78, 0.5], power: 9, range: 130, dir: [0, -0.94, 0.34 * (z < -1000 ? 1 : -1)], cone: 0.22 });
+  }
 }
 
 function windTurbine(B, root, x, z, base) {
@@ -718,7 +750,7 @@ function windTurbine(B, root, x, z, base) {
   hb.build(hub, { dynamic: true });
   root.add(hub);
   WORLD.turbines.push({ hub, speed: rr(0.9, 1.3) });
-  WORLD.flashers.push(glowSprite(0xff2a1a, 16, root, x, base + H + 4.4, z, '255,50,30'));
+  WORLD.flashers.push(glowSprite(0xff2a1a, 12, root, x, base + H + 4.4, z, '255,50,30', 3));
 }
 
 function makeBuoy(root, b) {
@@ -805,12 +837,12 @@ function updateWorld(dt, t) {
   for (const L of WORLD.buoyLights || []) {
     const on = flashChar(t, L);
     L.spr.visible = on > 0; L.spr.material.opacity = dayK;
-    L.spr.scale.setScalar(L.base * (0.6 + 0.4 * dayK));
+    L.spr.scale.setScalar(L.base * 0.5 * (0.6 + 0.4 * dayK));
   }
   const blink = (Math.floor(t * 1.0) % 2) === 0;
   for (const f of WORLD.flashers) { f.visible = blink; f.material.opacity = Math.max(0.35, dayK); }
   if (WORLD.lighthouse) { const a = (t * 0.7) % (Math.PI * 2); WORLD.lighthouse.material.opacity = Math.pow(Math.max(0, Math.cos(a)), 16) * dayK * 1.2; }
-  if (WORLD.flare) WORLD.flare.scale.setScalar(55 + Math.sin(t * 7) * 6 + Math.sin(t * 13) * 4);
+  if (WORLD.flare) WORLD.flare.scale.setScalar((55 + Math.sin(t * 7) * 6 + Math.sin(t * 13) * 4) * 0.5);
   // turbines
   for (const tb of WORLD.turbines) tb.hub.rotation.z -= dt * tb.speed * 1.4;
   // cranes: trolley shuttles between ship and quay, spreader hoists – lands ON the stacks, never inside them

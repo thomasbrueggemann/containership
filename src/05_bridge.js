@@ -71,9 +71,9 @@ function buildBridge(shipGroup) {
   // ---------- materials
   const envI = 0.35;
   const std = (c, r = 0.7, m = 0, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m, envMapIntensity: envI, ...o });
-  const floorTex = panelTexture('#3a4550', 3); floorTex.repeat.set(12, 3);
+  const floorTex = panelTexture('#7d8993', 3); floorTex.repeat.set(12, 3);
   const M = {
-    floor: std(0xffffff, 0.75, 0, { map: floorTex }),
+    floor: std(0xffffff, 0.36, 0, { map: floorTex, envMapIntensity: 0.8 }),         // waxed linoleum: reflects the windows
     wall: std(0xd9dcd8, 0.8, 0, { side: THREE.DoubleSide }),
     wallExt: std(0xf1f3f2, 0.6, 0.05, { side: THREE.DoubleSide, envMapIntensity: 1 }),
     ceiling: std(0xe9ebea, 0.9, 0, { side: THREE.DoubleSide }),
@@ -94,6 +94,7 @@ function buildBridge(shipGroup) {
     yellow: std(0xe8c21a, 0.6),
   };
   const glass = new THREE.MeshPhysicalMaterial({ color: 0xcfe6e0, transparent: true, opacity: 0.12, roughness: 0.03, metalness: 0.0, envMapIntensity: 1.2, depthWrite: false, side: THREE.DoubleSide });
+  glass.userData.glassDirt = true;
   const tint = new THREE.MeshStandardMaterial({ color: 0x1a1d20, transparent: true, opacity: 0.55, roughness: 0.3, side: THREE.DoubleSide, depthWrite: false });
 
   // ---------- layout: central wheelhouse (|x| < CW) + narrow glazed wing passages (z < WZ)
@@ -530,8 +531,8 @@ function buildBridge(shipGroup) {
     for (const x of [-18, -6, 6, 18]) { const l = new THREE.PointLight(0xff5533, 0.9, 11, 2); l.position.set(x, H - 0.3, 0); bg.add(l); }
     const cl = new THREE.PointLight(0x9ab8ff, 0.5, 6, 2); cl.position.set(0, 1.4, -3.4); bg.add(cl);
   } else {
-    const fill = new THREE.PointLight(0xfff4e8, 3.0, 22, 1.6); fill.position.set(0, H - 0.4, 0); bg.add(fill);
-    for (const x of [-18, 18]) { const f2 = new THREE.PointLight(0xfff4e8, 1.8, 16, 1.6); f2.position.set(x, H - 0.4, 0); bg.add(f2); }
+    const fill = new THREE.PointLight(0xfff4e8, 7.0, 24, 1.5); fill.position.set(0, H - 0.4, 0); bg.add(fill);
+    for (const x of [-18, 18]) { const f2 = new THREE.PointLight(0xfff4e8, 4.2, 18, 1.5); f2.position.set(x, H - 0.4, 0); bg.add(f2); }
   }
 
   addBridgeDetails(bg, M, B);

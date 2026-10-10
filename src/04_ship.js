@@ -109,6 +109,26 @@ function hullTexture(o) {
   return t;
 }
 
+// Hull paint over welded plating: colour map (livery, text, weathering) + shared plating normal / roughness tiles
+function hullMaterial(o, extra = {}) {
+  const P = hullPlateTextures(), span = o.T + o.D + (o.fc || 0);
+  const tile = (t) => { const c = t.clone(); c.repeat.set(o.L / 24, 2 * span / 12); return c; };
+  const orm = tile(P.orm);
+  return new THREE.MeshStandardMaterial({ map: hullTexture(o), normalMap: tile(P.normal), normalScale: new THREE.Vector2(0.85, 0.85), roughnessMap: orm, metalnessMap: orm, roughness: 1, metalness: 1, ...extra });
+}
+// Box whose side faces carry the deck-module facade (6.4 × 3.2 m per tile, rows start at the bottom of the box);
+// top and bottom use the plain-paint corner of the texture.
+function facadeBox(w, h, d, tw = 6.4, th = 3.2) {
+  const g = new THREE.BoxGeometry(w, h, d), uv = g.attributes.uv;
+  for (let f = 0; f < 6; f++) for (let k = 0; k < 4; k++) {
+    const i = f * 4 + k, u = uv.getX(i), v = uv.getY(i);
+    if (f < 2) uv.setXY(i, u * d / tw, v * h / th);
+    else if (f < 4) uv.setXY(i, 0.03 + u * 0.02, 0.94 + v * 0.03);
+    else uv.setXY(i, u * w / tw, v * h / th);
+  }
+  return g;
+}
+
 function hullGeometry(o) {
   const NS = o.detail > 1 ? 120 : 48, NH = o.detail > 1 ? 30 : 14;
   const pos = [], uv = [], idx = [];
@@ -168,12 +188,31 @@ function transomMesh(o, mat) {
   return new THREE.Mesh(g, mat);
 }
 
+// Guard rails along both deck edges (posts every ~5 m, two rails): the main deck from the stern to the forecastle break, and the forecastle.
+// They follow the hull's sheer, so the silhouette of the ship reads as a ship instead of a bare slab.
+function deckRails(B, mat, o, step = 5) {
+  const run = (s0, s1, y) => {
+    const n = Math.max(2, Math.round((s1 - s0) * o.L / step));
+    for (const side of [-1, 1]) {
+      let prev = null;
+      for (let i = 0; i <= n; i++) {
+        const s = s0 + (s1 - s0) * i / n, x = side * (hullHalfBreadth(s, y, o) - 0.14), z = stationZ(s, y, o);
+        B.box(mat, 0.07, 1.15, 0.07, x, y + 0.575, z);
+        if (prev) for (const h of [0.58, 1.12]) B.beam(mat, new THREE.Vector3(prev[0], y + h, prev[1]), new THREE.Vector3(x, y + h, z), 0.045, 0.045);
+        prev = [x, z];
+      }
+    }
+  };
+  run(0.03, 0.865, o.D);
+  if (o.fc) run(0.89, 0.985, o.D + o.fc);
+}
+
 // ---------------------------------------------------------------- container ship
 function buildContainerShip(o) {
   o = Object.assign({ fc: 2.8, rake: 6, detail: 1, bootTop: 1.4, tiers: 8, deckhouse: 0.62, funnel: 0.2, style: 'generic', seed: 1 }, o);
   reseed(o.seed * 101 + 7);
   const grp = new THREE.Group();
-  const hullMat = new THREE.MeshStandardMaterial({ map: hullTexture(o), roughness: 0.55, metalness: 0.15 });
+  const hullMat = hullMaterial(o);
   const hull = new THREE.Mesh(hullGeometry(o), hullMat);
   hull.receiveShadow = true; hull.castShadow = o.detail > 1;
   grp.add(hull);
@@ -271,14 +310,18 @@ function buildContainerShip(o) {
   // ---- deckhouse (accommodation)
   const dhW = o.dhW || Math.min(o.B * 0.62, 36), dhTop = o.bridgeFloor ?? (eyeY - 1.7);
   if (!o.noBridge) {
-    const fac = facadeTexture({ cols: 8, rows: 10, wall: '#eef0ef', glass: '#27394a', mx: 0.22, my: 0.3, wh: 0.4, seed: o.seed + 3 });
-    fac.wrapS = fac.wrapT = THREE.RepeatWrapping;
-    const dhMat = new THREE.MeshStandardMaterial({ map: fac, roughness: 0.6 });
-    if (ENV.night) { dhMat.emissiveMap = emissiveWindowsTexture({ cols: 8, rows: 10, mx: 0.22, my: 0.3, wh: 0.4, seed: o.seed + 3, litP: 0.4 }); dhMat.emissiveMap.wrapS = dhMat.emissiveMap.wrapT = THREE.RepeatWrapping; dhMat.emissive.set(0xffffff); dhMat.emissiveIntensity = 1.2; }
+    const F = deckhouseFacadeTextures();
+    const dhMat = new THREE.MeshStandardMaterial({ map: F.map, normalMap: F.normal, roughnessMap: F.orm, metalnessMap: F.orm, roughness: 1, metalness: 1 });
+    if (ENV.night) {
+      dhMat.emissiveMap = deckhouseEmissive(o.seed, 0.4); dhMat.emissive.set(0xffffff); dhMat.emissiveIntensity = 1.6;
+    }
     const h = dhTop - o.D - (o.ownBridge ? 0.6 : 0);
-    B.add(boxUV(dhW, h, deckhouseLen - 4, 3.2), dhMat, MX(0, o.D + h / 2, bridgeZ + 2));
-    // stair towers / lower wider block
-    B.add(boxUV(dhW + 8, 9, deckhouseLen, 3.2), dhMat, MX(0, o.D + 4.5, bridgeZ + 1));
+    B.add(facadeBox(dhW, h, deckhouseLen - 4), dhMat, MX(0, o.D + h / 2, bridgeZ + 2));
+    // stair towers / lower wider block, with a deck slab on top so the window pattern never shows from above
+    B.add(facadeBox(dhW + 8, 9.6, deckhouseLen), dhMat, MX(0, o.D + 4.8, bridgeZ + 1));
+    // deck ledges break up the facade and cast thin shadow lines
+    for (let k = 1; k * 3.2 < h; k++) B.box(white, dhW + 0.5, 0.14, deckhouseLen - 3.5, 0, o.D + k * 3.2, bridgeZ + 2);
+    for (let k = 1; k * 3.2 < 9.6; k++) B.box(white, dhW + 8.5, 0.14, deckhouseLen + 0.5, 0, o.D + k * 3.2 + 0.05, bridgeZ + 1);
     if (!o.ownBridge) {
       // generic bridge on top with wings
       B.add(boxUV(o.B + 1, 3.4, 11, 3.4), new THREE.MeshStandardMaterial({ map: facadeTexture({ cols: 16, rows: 1, wall: '#eef0ef', glass: '#1c2c38', mx: 0.05, my: 0.18, wh: 0.62, seed: 4 }), roughness: 0.5 }), MX(0, dhTop + 1.7, bridgeZ - 3));
@@ -308,6 +351,7 @@ function buildContainerShip(o) {
   for (const sx of [-2.5, 2.5]) for (const dz of [-3, 2]) B.cyl(dark, 0.8, 0.8, 3, sx, fTop + 1.5, funnelZ + dz, 10);
   // stern flagpole
   B.cyl(white, 0.08, 0.1, 7, 0, o.D + 3.5, zOf(0.004), 6);
+  deckRails(B, new THREE.MeshStandardMaterial({ color: 0xaeb4b8, roughness: 0.45, metalness: 0.55 }), o);
   B.build(grp, { cast: o.detail > 1, receive: true });
 
   // flag
@@ -321,6 +365,11 @@ function buildContainerShip(o) {
   grp.userData.o = o;
   grp.userData.bridgeZ = bridgeZ; grp.userData.funnelZ = funnelZ; grp.userData.eyeY = eyeY;
   grp.userData.containers = cont;
+  {                                                              // what the sea sees of her: hull, stacks, accommodation, funnel (see 02g_shipshadow.js)
+    const zA = zOf(o.aftLimit ?? 0.045), zF = fwdLimit, hs = hatchTop + o.tiers * 2.59 * 0.88;
+    SHSHADOW.register(grp, [[0, o.L * 0.46, o.B * 0.47, o.D + 1], [-(zA + zF) / 2, Math.abs(zA - zF) / 2, o.B * 0.44, hs],
+      o.noBridge ? null : [-(bridgeZ + 1.5), 11, dhW / 2, dhTop + 3], [-(funnelZ + 1), 11, fW / 2 + 2, fTop + 2]]);
+  }
   return grp;
 }
 
@@ -328,7 +377,7 @@ function buildContainerShip(o) {
 function buildTanker(o) {
   o = Object.assign({ T: 11, D: 9, fc: 2.5, rake: 4, detail: 1, boot: '#6d1f1b', bootTop: 3.5, seed: 3, bowStart: 0.82, sternEnd: 0.14 }, o);
   const grp = new THREE.Group();
-  const hull = new THREE.Mesh(hullGeometry(o), new THREE.MeshStandardMaterial({ map: hullTexture({ ...o, hullText: null }), roughness: 0.6 }));
+  const hull = new THREE.Mesh(hullGeometry(o), hullMaterial({ ...o, hullText: null }));
   grp.add(hull);
   const deckMat = new THREE.MeshStandardMaterial({ color: 0x7a3a2c, roughness: 0.9 });
   grp.add(deckMesh(o, o.D, deckMat, 0, 0.9)); grp.add(deckMesh(o, o.D + o.fc, deckMat, 0.875, 1));
@@ -345,50 +394,119 @@ function buildTanker(o) {
   B.cyl(white, 0.4, 0.5, 14, 0, o.D + o.fc + 7, -o.L / 2 + 10, 8);
   B.build(grp, { receive: true });
   if (ENV.night) { glowSprite(0xfff3dd, 14, grp, 0, o.D + 16, -o.L / 2 + 10, '255,240,220'); glowSprite(0xfff3dd, 14, grp, 0, o.D + 26, o.L / 2 - 16, '255,240,220'); }
+  SHSHADOW.register(grp, [[0, o.L * 0.47, o.B * 0.47, o.D + 1.5], [-(o.L / 2 - 26), 9, o.B * 0.4, o.D + 19], null, null]);
   return grp;
 }
 
 // ---------------------------------------------------------------- tug (ASD)
+// small-craft building blocks ------------------------------------------------------------------------------------------------
+// plan-view outline [[x, z], …] extruded upwards from y0 by h (flat caps)
+function prism(pts, y0, h) {
+  const g = new THREE.ExtrudeGeometry(new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z))), { depth: h, bevelEnabled: false });
+  g.rotateX(-Math.PI / 2); g.translate(0, y0, 0);
+  return g;
+}
+// rectangle of half-width hw and half-depth hd centred on (0, cz), the forward (−z) corners cut by c
+const chamfered = (hw, hd, cz, c) => [[-hw, cz + hd], [hw, cz + hd], [hw, cz - hd + c], [hw - c, cz - hd], [-hw + c, cz - hd], [-hw, cz - hd + c]];
+const roundBox = (w, h, d, r) => new RoundedBoxGeometry(w, h, d, 3, r);
+const plainMat = (c, r = 0.5, m = 0, extra = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m, ...extra });
+
 function buildTug(name, hullCol = '#b3261e') {
   const o = { L: 32, B: 12.8, T: 5.5, D: 2.8, fc: 1.6, rake: 1.5, hull: hullCol, boot: '#2a2a2a', bootTop: 0.4, detail: 1, name, port: 'WESTERHAVEN', bowStart: 0.62, sternEnd: 0.25, seed: name.length };
   const g = new THREE.Group();
-  g.add(new THREE.Mesh(hullGeometry(o), new THREE.MeshStandardMaterial({ map: hullTexture(o), roughness: 0.55 })));
+  g.add(new THREE.Mesh(hullGeometry(o), hullMaterial(o)));
   const deckMat = new THREE.MeshStandardMaterial({ color: 0x4b4f52, roughness: 0.9 });
   g.add(deckMesh(o, o.D, deckMat, 0, 0.9)); g.add(deckMesh(o, o.D + o.fc, deckMat, 0.875, 1));
   g.add(transomMesh(o, new THREE.MeshStandardMaterial({ color: hullCol })));
-  const B = new Batcher();
-  const white = new THREE.MeshStandardMaterial({ color: 0xf2f2ef, roughness: 0.5 });
-  const black = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.95 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x1b2833, roughness: 0.1, metalness: 0.6 });
-  // fender belt
+  const B = new Batcher(), y0 = o.D;
+  const white = plainMat(0xf2f2ef), black = plainMat(0x151515, 0.95), grey = plainMat(0xc9cdcf, 0.55), steel = plainMat(0x3a3f44, 0.4, 0.5);
+  const red = plainMat(hullCol, 0.55), glass = plainMat(0x1b2833, 0.1, 0.6);
+  const lampG = plainMat(0x1a7a3a, 0.5, 0, { emissive: 0x22ff66, emissiveIntensity: ENV.night ? 2 : 0.15 }), lampR = plainMat(0x8a1a1a, 0.5, 0, { emissive: 0xff2a2a, emissiveIntensity: ENV.night ? 2 : 0.15 });
+  // fender belt round the deck edge, hanging fenders below it, the big push fender on the bow, the stern roller
   const ell = []; for (let i = 0; i < 40; i++) { const a = i / 40 * Math.PI * 2; ell.push(new THREE.Vector3(Math.cos(a) * 6.9, 2.4, Math.sin(a) * 16.4 - 0.5)); }
   B.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(ell, true), 64, 0.65, 6, true), black);
-  B.box(black, 8, 2.2, 1.6, 0, 3.4, -16.6);
-  // superstructure & wheelhouse
-  B.box(white, 8, 2.6, 11, 0, o.D + 1.3, -1);
-  B.box(white, 6.6, 2.4, 6.4, 0, o.D + 3.8, -2.4);
-  B.box(glass, 6.8, 1.3, 6.6, 0, o.D + 4.2, -2.4);
-  B.box(white, 7.2, 0.3, 7.0, 0, o.D + 5.1, -2.4);
-  B.box(white, 1.2, 4.2, 1.2, 0, o.D + 7.2, -1.8);
-  for (const sx of [-2, 2]) B.cyl(new THREE.MeshStandardMaterial({ color: 0x222222 }), 0.45, 0.45, 3.5, sx, o.D + 4.2, 4, 8);
-  B.cyl(new THREE.MeshStandardMaterial({ color: 0x3a3f44, metalness: 0.5, roughness: 0.4 }), 1.1, 1.3, 1.4, 0, o.D + 2.2, -9, 12); // winch
-  B.cyl(white, 0.3, 0.3, 1.2, 0, o.D + o.fc + 0.6, -13.4, 8); // staple
+  for (const sx of [-1, 1]) for (let s = 0.14; s < 0.84; s += 0.09) B.cyl(black, 0.27, 0.27, 1.3, sx * (hullHalfBreadth(s, y0 - 0.3, o) + 0.05), y0 - 0.6, stationZ(s, y0 - 0.3, o), 8);
+  B.add(roundBox(7.2, 2.1, 1.7, 0.7), black, MX(0, y0 + 0.55, -16.5));
+  B.cyl(black, 0.4, 0.4, 8.6, 0, y0 + 0.25, 15.7, 10, 0, 0, Math.PI / 2);
+  // deckhouse with its windows and doors
+  B.add(roundBox(8, 2.8, 11, 0.6), white, MX(0, y0 + 1.4, -1));
+  for (const sx of [-1, 1]) {
+    for (const z of [-5, -2.9, -0.8, 1.3]) B.box(glass, 0.06, 0.8, 1.3, sx * 4.02, y0 + 1.75, z);
+    B.box(grey, 0.07, 1.8, 0.9, sx * 4.02, y0 + 1.0, 3.5);
+  }
+  for (const x of [-1.6, 1.6]) B.box(glass, 2.2, 0.75, 0.06, x, y0 + 1.75, -6.53);
+  // wheelhouse: frame band, glass all round with mullions, an overhanging roof
+  const wy = y0 + 2.8, wp = chamfered(3.3, 3.2, -2.4, 1.3);
+  B.add(prism(wp, wy, 0.55), white);
+  B.add(prism(wp, wy + 0.55, 1.3), glass);
+  for (const [x, z] of wp) B.box(white, 0.16, 1.3, 0.16, x, wy + 1.2, z);
+  for (const x of [-1.8, -0.6, 0.6, 1.8]) B.box(white, 0.1, 1.3, 0.1, x, wy + 1.2, -5.6);
+  for (const sx of [-1, 1]) for (const z of [-3.9, -2.4, -0.9]) B.box(white, 0.1, 1.3, 0.1, sx * 3.3, wy + 1.2, z);
+  B.add(prism(chamfered(3.75, 3.65, -2.4, 1.5), wy + 1.85, 0.28), white);
+  const ry = wy + 2.13;
+  // mast with radar, antennas, searchlights, navigation lights
+  B.cyl(white, 0.1, 0.16, 3.0, 0, ry + 1.5, -1.4, 8);
+  B.box(grey, 1.5, 0.07, 0.8, 0, ry + 2.0, -1.4);
+  B.box(steel, 1.9, 0.12, 0.25, 0.6, ry + 2.25, -1.4); B.box(steel, 1.3, 0.1, 0.22, -0.7, ry + 2.62, -1.4);
+  for (const [x, z, h] of [[-2.4, 0.2, 1.4], [2.2, 0.4, 1.0], [0.9, 0.6, 1.8], [-1.0, 0.8, 0.8]]) B.cyl(grey, 0.025, 0.025, h, x, ry + h / 2, z, 5);
+  for (const sx of [-1, 1]) B.cyl(grey, 0.22, 0.26, 0.4, sx * 1.9, ry + 0.2, -4.6, 10);
+  B.cyl(black, 0.1, 0.2, 0.6, 1.2, ry + 0.3, -3.4, 8);
+  B.box(lampG, 0.2, 0.2, 0.26, 3.45, wy + 1.35, -3.5); B.box(lampR, 0.2, 0.2, 0.26, -3.45, wy + 1.35, -3.5);
+  // two funnels with the company band and black tops, life rafts on the deckhouse roof
+  for (const sx of [-1, 1]) {
+    B.add(roundBox(1.5, 3.4, 2.1, 0.4), white, MX(sx * 2.15, y0 + 4.5, 2.6));
+    B.add(roundBox(1.54, 0.55, 2.14, 0.25), red, MX(sx * 2.15, y0 + 4.1, 2.6));
+    B.add(roundBox(1.56, 0.7, 2.16, 0.3), black, MX(sx * 2.15, y0 + 5.95, 2.6));
+    B.cyl(white, 0.4, 0.4, 1.7, sx * 3.1, y0 + 3.2, -3.9, 10, Math.PI / 2, 0, 0);
+  }
+  // foredeck: winch on its bed, bitts, the staple at the bow
+  B.add(roundBox(2.6, 0.7, 2.2, 0.15), steel, MX(0, y0 + 0.35, -9.4));
+  B.cyl(steel, 0.8, 0.8, 1.7, 0, y0 + 1.55, -9.4, 14);
+  for (const dy of [0.78, 2.35]) B.cyl(black, 1.05, 1.05, 0.12, 0, y0 + dy, -9.4, 14);
+  for (const sx of [-1, 1]) { B.cyl(steel, 0.3, 0.38, 0.8, sx * 2.6, y0 + 0.4, -10.8, 10); B.cyl(steel, 0.4, 0.4, 0.14, sx * 2.6, y0 + 0.85, -10.8, 10); B.cyl(steel, 0.3, 0.38, 0.8, sx * 2.2, y0 + 0.4, 12.5, 10); }
+  for (const sx of [-1, 1]) B.cyl(white, 0.25, 0.25, 1.3, sx * 0.8, o.D + o.fc + 0.65, -13.4, 8);
+  B.cyl(black, 0.18, 0.18, 1.8, 0, o.D + o.fc + 1.1, -13.4, 8, 0, 0, Math.PI / 2);
+  deckRails(B, grey, o);
   B.build(g, { cast: true, dynamic: true });
-  glowSprite(0xffffff, 3, g, 0, o.D + 9.3, -1.8);
+  glowSprite(0xffffff, 3, g, 0, ry + 3.1, -1.4);
+  glowSprite(0x20ff60, 1.8, g, 3.45, wy + 1.35, -3.5, '40,255,90'); glowSprite(0xff2020, 1.8, g, -3.45, wy + 1.35, -3.5, '255,40,30');
   return g;
 }
 
 function buildPilotBoat() {
   const o = { L: 18, B: 5.4, T: 1.2, D: 1.8, fc: 0.8, rake: 1.5, hull: '#161616', boot: '#8a1d1a', bootTop: 0.3, detail: 1, name: 'PILOT', hullText: 'PILOT', hullTextH: 1.0, hullTextY: 1.0, bowStart: 0.55, sternEnd: 0.08, seed: 4 };
   const g = new THREE.Group();
-  g.add(new THREE.Mesh(hullGeometry(o), new THREE.MeshStandardMaterial({ map: hullTexture(o), roughness: 0.5 })));
+  g.add(new THREE.Mesh(hullGeometry(o), hullMaterial(o)));
   g.add(deckMesh(o, o.D, new THREE.MeshStandardMaterial({ color: 0x3a3a3a }), 0, 0.9));
   g.add(transomMesh(o, new THREE.MeshStandardMaterial({ color: '#161616' })));
-  const B = new Batcher();
-  const orange = new THREE.MeshStandardMaterial({ color: 0xf0661a, roughness: 0.5 });
-  B.box(orange, 4.2, 2.2, 6.5, 0, o.D + 1.1, 0.5);
-  B.box(new THREE.MeshStandardMaterial({ color: 0x1b2833, roughness: 0.1, metalness: 0.6 }), 4.3, 0.9, 6.0, 0, o.D + 1.6, 0.5);
-  B.box(orange, 0.4, 3, 0.4, 0, o.D + 3.5, 2);
+  const B = new Batcher(), y0 = o.D;
+  const orange = plainMat(0xf0661a), black = plainMat(0x151515, 0.95), grey = plainMat(0xc9cdcf, 0.55), steel = plainMat(0x3a3f44, 0.4, 0.5), glass = plainMat(0x1b2833, 0.1, 0.6);
+  const lampG = plainMat(0x1a7a3a, 0.5, 0, { emissive: 0x22ff66, emissiveIntensity: ENV.night ? 2 : 0.15 }), lampR = plainMat(0x8a1a1a, 0.5, 0, { emissive: 0xff2a2a, emissiveIntensity: ENV.night ? 2 : 0.15 });
+  // rubber belt round the deck edge, the bow fender, rails
+  const ell = []; for (let i = 0; i < 32; i++) { const a = i / 32 * Math.PI * 2; ell.push(new THREE.Vector3(Math.cos(a) * 2.62, y0 - 0.25, Math.sin(a) * 8.9 + 0.3)); }
+  B.add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(ell, true), 48, 0.26, 6, true), black);
+  B.add(roundBox(3.0, 0.9, 0.9, 0.35), black, MX(0, y0 + 0.15, -9.1));
+  // cabin: orange base, glass all round with mullions, overhanging roof
+  const cp = chamfered(2.0, 3.0, 0.5, 1.0);
+  B.add(prism(cp, y0, 1.1), orange);
+  B.add(prism(cp, y0 + 1.1, 1.0), glass);
+  for (const [x, z] of cp) B.box(orange, 0.12, 1.0, 0.12, x, y0 + 1.6, z);
+  for (const x of [-0.7, 0.7]) B.box(orange, 0.08, 1.0, 0.08, x, y0 + 1.6, -2.5);
+  for (const sx of [-1, 1]) for (const z of [-1.4, 0.5, 2.4]) B.box(orange, 0.08, 1.0, 0.08, sx * 2.0, y0 + 1.6, z);
+  B.add(prism(chamfered(2.25, 3.25, 0.5, 1.1), y0 + 2.1, 0.2), orange);
+  const ry = y0 + 2.3;
+  // mast aft on the roof: radar, antennas, searchlight, navigation lights; exhaust, life ring
+  B.cyl(grey, 0.07, 0.11, 2.4, 0, ry + 1.2, 2.0, 8);
+  B.box(grey, 1.0, 0.06, 0.6, 0, ry + 1.4, 2.0); B.box(steel, 1.5, 0.1, 0.2, 0.2, ry + 1.7, 2.0);
+  for (const [x, z, h] of [[-1.5, 2.6, 1.2], [1.4, 2.8, 0.9], [0.6, 1.4, 1.5]]) B.cyl(grey, 0.02, 0.02, h, x, ry + h / 2, z, 5);
+  B.cyl(grey, 0.18, 0.22, 0.34, 0, ry + 0.17, -1.9, 10);
+  B.box(lampG, 0.16, 0.16, 0.2, 2.05, y0 + 1.7, -1.9); B.box(lampR, 0.16, 0.16, 0.2, -2.05, y0 + 1.7, -1.9);
+  B.cyl(black, 0.2, 0.26, 0.8, -1.2, y0 + 2.6, 3.0, 8);
+  B.add(new THREE.TorusGeometry(0.3, 0.07, 6, 14), plainMat(0xe8e8e4), MX(2.03, y0 + 0.6, 1.0, 0, Math.PI / 2, 0));
+  // foredeck bitt and the aft working deck's fairleads
+  B.cyl(steel, 0.25, 0.3, 0.7, 0, y0 + o.fc + 0.35, -6.8, 10);
+  for (const sx of [-1, 1]) B.cyl(steel, 0.22, 0.28, 0.6, sx * 1.9, y0 + 0.3, 6.0, 10);
+  deckRails(B, grey, o);
   B.build(g, { dynamic: true, cast: true });
   const fl = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.9), new THREE.MeshStandardMaterial({ map: stripesTexture('#ffffff', '#c8102e', 2, true), side: THREE.DoubleSide }));
   fl.position.set(0, o.D + 4.6, 2.5); fl.rotation.y = Math.PI / 2; g.add(fl);

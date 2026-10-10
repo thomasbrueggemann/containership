@@ -89,7 +89,7 @@ const START_TIME = { morning: 7 * 3600 + 40 * 60, golden: 19 * 3600 + 5 * 60, ni
 // ---------------------------------------------------------------- renderer
 let renderer, scene, camera, clock;
 function initRenderer() {
-  renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
+  renderer = new THREE.WebGLRenderer({ antialias: !POST.supported(), logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
   const pr = CFG.quality === 'high' ? Math.min(devicePixelRatio, 2) : CFG.quality === 'medium' ? Math.min(devicePixelRatio, 1.4) : 1;
   renderer.setPixelRatio(pr);
   renderer.setSize(innerWidth, innerHeight);
@@ -107,6 +107,8 @@ function initRenderer() {
     renderer.setSize(innerWidth, innerHeight);
     camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   });
+  ATMOS.patchFog();              // sky-coloured aerial perspective for every fogged material (before any compile)
+  POST.init();                   // after the resize handler above, so it sees the new drawing-buffer size
 }
 
 // ---------------------------------------------------------------- geometry helpers
