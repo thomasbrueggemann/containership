@@ -6,7 +6,7 @@
 //     sheet; sun and moon are crisp analytic discs. The static sky cube only holds the clear sky.
 // ============================================================================
 const ATMOS = {
-  U: { uFogEnv: { value: null }, uFogK: { value: 1 }, uGrunge: { value: null }, uGrungeK: { value: 1 }, uGlassDirt: { value: 0.45 }, uDirt: { value: null } },
+  U: { uFogEnv: { value: null }, uFogK: { value: 1 }, uGrunge: { value: null }, uGrungeK: { value: 1 }, uGlassDirt: { value: 0.2 }, uDirt: { value: null } },
   patched: false,
   // --- fog: sample the sky cube in the view direction
   patchFog() {
@@ -94,10 +94,10 @@ const ATMOS = {
         }
         #endif
         #ifdef GLASS_DIRT
-          diffuseColor.rgb = vec3(0.8, 0.88, 0.9);          // undo the darkening above: salt on glass is pale
+          diffuseColor.rgb = vec3(0.34, 0.38, 0.4);          // undo the darkening above; a pale pane lit by the low sun veils the whole view, so the film is only a faint grey
           vec3 dm = texture(uDirt, vLP.xy * 0.45 + vec2(0.3, 0.7)).rgb;       // panes are planes: their own x/y are the glass
-          float dirt = clamp(dm.r * 0.9 + dm.g * 0.05 + dm.b * 0.5, 0.0, 1.0) * uGlassDirt;        // (the broad blotches read as camouflage paint on a window seen at an angle: kept as a faint haze)
-          diffuseColor.a = clamp(diffuseColor.a + dirt * 0.4, 0.0, 1.0);
+          float dirt = clamp(dm.r * 0.9 + dm.b * 0.12, 0.0, 1.0) * uGlassDirt;        // a few salt specks and the faintest runs: the view through the pane must stay clear
+          diffuseColor.a = clamp(diffuseColor.a + dirt * 0.22, 0.0, 1.0);
         #endif`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         #ifndef NO_GRUNGE

@@ -114,7 +114,7 @@ function updateEnvFrame(rdt = 1 / 60) {
   SWELL.setAmp(SS.waveA, SS.chop); SWELL.cam.copy(cp);
   // inside the breakwaters the sea is sheltered
   const shelter = G.ship.x > -2600 ? 0.45 : 1; U.uSea.value *= shelter; U.uCaps.value *= shelter;
-  ATMOS.U.uGlassDirt.value += ((G.wipers ? 0.1 : 0.45) - ATMOS.U.uGlassDirt.value) * Math.min(1, (G.wipers ? 1.8 : 0.12) / 60);   // wipers clear the salt, it creeps back
+  ATMOS.U.uGlassDirt.value += ((G.wipers ? 0.03 : 0.2) - ATMOS.U.uGlassDirt.value) * Math.min(1, (G.wipers ? 1.8 : 0.12) / 60);   // wipers clear the salt, it creeps back
   // direct light follows the clouds: the sun is dimmed (never to zero: skylight remains) when a cloud is in front of it
   ENV.sunAcc += rdt;
   if (ENV.sunAcc > 0.25) { ENV.sunAcc = 0; ENV.sunTarget = CLOUDS.sunTransmittance(G.ship.x, 40, G.ship.z, ENV.sunDir, G.realT + ENV.cloudT0); }

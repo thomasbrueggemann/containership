@@ -178,7 +178,7 @@ const humUV = (rect, u, v) => [rect[0] + rect[2] * u, 1 - (rect[1] + rect[3] * v
 const HUM_TORSO_M = [
   [0.00, 0.168, 0.112, 0.122, 2.6], [0.10, 0.160, 0.108, 0.116, 2.6], [0.18, 0.156, 0.104, 0.112, 2.5], [0.26, 0.162, 0.108, 0.112, 2.5],
   [0.34, 0.172, 0.118, 0.114, 2.5], [0.40, 0.178, 0.124, 0.116, 2.5], [0.455, 0.182, 0.118, 0.116, 2.4], [0.495, 0.190, 0.106, 0.110, 2.3],
-  [0.518, 0.186, 0.094, 0.102, 2.2], [0.538, 0.158, 0.084, 0.092, 2.1], [0.558, 0.118, 0.074, 0.084, 2.0], [0.576, 0.082, 0.064, 0.074, 2.0], [0.590, 0.066, 0.058, 0.064, 2.0], [0.602, 0.063, 0.055, 0.061, 2.0], [0.62, 0.062, 0.054, 0.060, 2.0],
+  [0.518, 0.186, 0.094, 0.102, 2.2], [0.538, 0.158, 0.084, 0.092, 2.1], [0.558, 0.118, 0.074, 0.084, 2.0], [0.576, 0.086, 0.066, 0.082, 2.0], [0.590, 0.072, 0.060, 0.076, 2.0], [0.602, 0.069, 0.058, 0.072, 2.0], [0.62, 0.068, 0.057, 0.071, 2.0],
 ];
 const HUM_TORSO_F = [
   [0.00, 0.164, 0.104, 0.122, 2.7], [0.10, 0.146, 0.098, 0.110, 2.6], [0.18, 0.132, 0.092, 0.100, 2.5], [0.26, 0.140, 0.100, 0.100, 2.5],
@@ -224,7 +224,7 @@ function humTorsoW(P, y) {
 
 // the neckline: height above the hip line at which the cloth ends, at angle a (a V at the front for an open collar)
 function humNeckY(P, a) {
-  const o = P.o, vOpen = (o.vOpen !== undefined ? o.vOpen : o.coverall ? 0.025 : P.F ? 0.035 : 0.05) * P.sc;
+  const o = P.o, vOpen = (o.vOpen !== undefined ? o.vOpen : o.coverall ? 0.02 : P.F ? 0.026 : 0.034) * P.sc;
   const d = Math.atan2(Math.sin(a - 1.5 * Math.PI), Math.cos(a - 1.5 * Math.PI));
   return 0.611 * P.sc - vOpen * Math.exp(-((d / 0.42) ** 2));
 }
@@ -244,13 +244,13 @@ function humBuildShirtTorso(P, o, acc) {
 
 // The collar: a stand band round the neck, open in front, rolled over at the top edge; it follows the neckline
 function humBuildCollar(P, o, acc) {
-  const seg = o.lod === 'low' ? 12 : 22, sc = P.sc, hy = P.hipH, R = HUV.shirtMisc, gap = o.coverall ? 0.14 : 0.3;
+  const seg = o.lod === 'low' ? 12 : 22, sc = P.sc, hy = P.hipH, R = HUV.shirtMisc, gap = o.coverall ? 0.12 : 0.2;
   const aStart = 1.5 * Math.PI + gap, aSpan = 2 * Math.PI - 2 * gap;
   const spec = [[0, 0.0, 0.0028, 0], [1, 0.35, 0.0042, 0], [1, 0.75, 0.0054, 0], [1, 1.0, 0.0050, 0], [2, 0, 0.0032, 0.0009], [2, 0, 0.0010, -0.0011], [2, 0, 0.0007, -0.0125]];
   const rings = spec.map(([mode, t, off, dy]) => {
     const ring = [];
     for (let k = 0; k <= seg; k++) {
-      const a = aStart + aSpan * k / seg, yn = humNeckY(P, a), yb = yn - 0.016 * sc, yt = yn + 0.020 * sc * (0.55 + 0.45 * Math.cos(0.5 * (a - 0.5 * Math.PI) * 0)),
+      const a = aStart + aSpan * k / seg, yn = humNeckY(P, a), yb = yn - 0.016 * sc, yt = yn + 0.013 * sc * (0.55 + 0.45 * Math.cos(0.5 * (a - 0.5 * Math.PI) * 0)),
         y = mode === 0 ? yb : mode === 1 ? yb + (yt - yb) * t : yt + dy * sc;
       const p = humTorsoPoint(P, y, a, off, false); ring.push(p[0], hy + y, p[2]);
     }

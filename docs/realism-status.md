@@ -118,6 +118,14 @@ Leftover headless Chrome processes: kill them by PID, never with `pkill -f` (it 
 1. Merge the branch's commits to `main` and push (this deploys the live game).
 2. Whether to keep the Retina default of starting the governor one level down.
 
+## Corrections after the first play-through (2026-10-10)
+
+The user played the build and reported three faults; all three were reproduced and fixed, and they are worth knowing about because each one looked fine in the test views.
+
+- **Windows far too dirty.** The wheelhouse glass was a pale, sunlit film (diffuse 0.8/0.88/0.9 lit by a low sun, plus up to 0.4 × 0.45 extra opacity from speckle *and* vertical streaks), which veiled the sea and horizon at golden hour. Now: film colour 0.34/0.38/0.40, only the speckle and a trace of the runs add opacity (0.22 × `uGlassDirt`), `uGlassDirt` 0.2 (wipers 0.03). Check glass changes at golden hour looking at the horizon, not at night.
+- **Necks.** The scanned male head stops at the jaw and the code carried its open edge down as a narrow tube whose last row of texture was smeared (vertical stripes, 4× stretched), inside a tall open stand collar; the female model's neck is only 7 cm across. Now: `HEADS.thickenNeck` widens both necks below the jaw (+17 % male, +34 % female, never forwards), `extendNeck` continues the texture down the atlas instead of repeating the last row and flares only 4 %, the shirt's neck rows are a little larger (more room at the back, so nothing pokes through), the V is shallower, the collar closes nearer the throat and its stand is lower. `node tools/crewshot.mjs out neck --ids co,o2 --key` shows front, three-quarter, side and back.
+- **Legs collapsing at corners.** A step is timed and aimed for the speed it starts at; leaving a corner the walker accelerates from about 0.5 to 1.3 m/s while the other foot is still in a 0.6 s swing, so the stance foot was left 1 m behind and the pelvis was lowered towards it (to 27 % of the normal hip height, then it snapped back: the "falling"). Now: swings are re-aimed every frame at where the body will be and hurried along when the walk has got faster; steps land along the way the body actually moves (it slides sideways through a corner); a stance foot that is still outrun is dragged (2–12 cm in a tight zig-zag, none in a plain corner) rather than lowering the pelvis, which never goes below 86 % of the hip height; the walking turn rate is 2.8 rad/s instead of 3.6. Measured over right-angle and zig-zag paths for three bodies: lowest pelvis 0.88–0.92 of the hip height (was 0.24–0.44); straight-line foot skate unchanged (0.02 m/s). `node tools/crewshot.mjs out corner --ids ab --key` renders a frame sequence through a corner.
+
 ## Crew bodies and walking (done by a Sonnet subagent, integrated)
 
 New modules `src/09b_body.js` (23-bone skinned body, lofted shells, per-person build), `09b_extremities.js` (hands with fingers, shoes), `09b_cloth.js`

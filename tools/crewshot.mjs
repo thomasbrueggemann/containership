@@ -4,12 +4,14 @@
 // scenes (comma list, default "stand"):
 //   stand    front / side / back full-body shots of each id, standing relaxed, in a spot in the wheelhouse   -> <id>_front|side|back.png
 //   upper    three-quarter close-up of head and torso (and a hand detail)                                      -> <id>_upper.png, <id>_hand.png
+//   neck     head, neck and collar close-ups from front, three-quarter, side and back                           -> <id>_neck_front|three|side|back.png
 //   seat     seated at the port radar chair (three-quarter view and from the side)                              -> <id>_seat_a|b.png
 //   handset  at the VHF handset                                                                                 -> <id>_handset_a|b.png
 //   poses    console / press / write / binoculars poses, three-quarter view                                     -> <id>_pose_<name>.png
 //   walk     8-frame strip across one gait cycle (camera tracks the walker; --view side|front|back|three)       -> <id>_walk_0..7.png
 //   decks    the deck-station figures (forecastle and poop) from free cameras and from the orbit camera        -> decks_*.png
 //   probe    run page-side JavaScript (--jsfile) and print what it returns
+//   corner   a right-angle turn while walking, a frame every --every seconds -> <id>_corner_NN.png
 //   skate    foot-skate numbers while walking
 //   fp       first-person views from the player's eye height next to the crew at their posts                     -> fp_*.png
 // --root serves another build (e.g. a copy of the old index.html) for before/after pairs. --key adds a soft key light so detail is
@@ -240,6 +242,15 @@ try {
         await ev(`CS.unfreeze(CREW.byId('${idd}')); true`);
       });
     }
+    if (scene === 'neck') {
+      // head, neck and collar from the front, the front three-quarter, the side and the back (a lit close-up: use with --key)
+      await persons(async (idd) => {
+        await ev(`CS.place('${idd}', ${S.x}, ${S.z}, 0); CS.settle(CREW.byId('${idd}'), 3); CS.neutralHead(CREW.byId('${idd}')); CS.freeze(CREW.byId('${idd}')); true`);
+        const h = await heightOf(idd), y = h * 0.9, d = 0.95;
+        for (const [nm, ax, az] of [['front', 0, -d], ['three', -0.7 * d, -0.7 * d], ['side', -d, 0], ['back', 0, d]]) { await ev(`CS.cam(${S.x + ax}, ${y + 0.04}, ${S.z + az}, ${S.x}, ${y - 0.02}, ${S.z}, 22)`); await shot(`${idd}_neck_${nm}`); }
+        await ev(`CS.unfreeze(CREW.byId('${idd}')); true`);
+      });
+    }
     if (scene === 'seat') {
       await persons(async (idd) => {
         await ev(`CS.spot('${idd}', 'radarL'); CS.settle(CREW.byId('${idd}'), 3); CS.freeze(CREW.byId('${idd}')); true`);
@@ -298,6 +309,22 @@ try {
           const st = Math.round(k * per * 60 / nFrames) - Math.round((k - 1) * per * 60 / nFrames);
           await ev(`(() => { CS.stepCrew(${k === 0 ? 0 : st}, 1 / 60); const m = CREW.byId('${idd}'); CS.cam(m.x + ${cx}, ${hh * 0.5}, m.z + ${cz}, m.x, ${hh * 0.5}, m.z, 36); return true; })()`);
           await shot(`${idd}_walk${view === 'side' ? '' : '_' + view}_${k}`);
+        }
+        await ev(`(() => { const m = CREW.byId('${idd}'); m.path = []; m.task = null; return true; })()`);
+      }
+      await ev('CS.showAll(); true');
+    }
+    if (scene === 'corner') {
+      // a right-angle turn while walking (-4, 2.6) -> (-4, 6): a frame every --every seconds (default 0.25) from just before the corner, camera following from the side
+      const every = +(opt.every || 0.25), nF = +(opt.frames || 12), start = +(opt.start || 2.7);
+      for (const idd of (opt.walkids ? opt.walkids.split(',') : ids.slice(0, 1))) {
+        await ev(`CS.hideOthers('${idd}'); true`);
+        await ev(`(() => { const m = CREW.byId('${idd}'); CS.place('${idd}', -7, 2.6, -Math.PI / 2); CS.settle(m, 1.5); m.path = [[-4, 2.6], [-4, 6]]; m.state = 'walk'; return true; })()`);
+        await ev(`CS.stepCrew(${Math.round(60 * start)}, 1 / 60); true`);
+        const hh = await heightOf(idd);
+        for (let k = 0; k < nF; k++) {
+          await ev(`(() => { CS.stepCrew(${k === 0 ? 0 : Math.round(every * 60)}, 1 / 60); const m = CREW.byId('${idd}'); CS.cam(m.x - 3.2, ${hh * 0.5}, m.z, m.x, ${hh * 0.5}, m.z, 36); return true; })()`);
+          await shot(`${idd}_corner_${String(k).padStart(2, '0')}`);
         }
         await ev(`(() => { const m = CREW.byId('${idd}'); m.path = []; m.task = null; return true; })()`);
       }

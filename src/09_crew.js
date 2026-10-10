@@ -378,7 +378,7 @@ class CrewMember {
       else this.targetFace = this.idleFace ?? 0;
     }
     // turning: a rate-limited, eased turn (the head leads, see below), faster while walking
-    const df = ((this.targetFace - this.face + Math.PI * 3) % (Math.PI * 2)) - Math.PI, rate = moving ? 3.6 : 2.6;
+    const df = ((this.targetFace - this.face + Math.PI * 3) % (Math.PI * 2)) - Math.PI, rate = moving ? 2.8 : 2.6;
     this.face += clamp(df * 6 * rdt, -rate * rdt, rate * rdt);
     // seated: body on the cushion (a little back), chair swivels with the sitter
     const k = this.sitK * this.sitK * (3 - 2 * this.sitK), st = this.lastSeat;

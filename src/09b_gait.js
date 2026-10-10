@@ -79,7 +79,7 @@ class HumGait {
     // pelvis / trunk state
     this.lat = 0; this.py = P.hipH; this.yawP = 0; this.rollP = 0; this.tiltP = 0.04; this.leanF = 0; this.leanS = 0;
     this.shift = 0; this.shiftS = 0; this.shiftT = 3 + this.rng() * 5;
-    this.speed = 0; this.accel = 0; this.lastSpeed = 0; this.yawRate = 0; this.lastFace = 0;
+    this.speed = 0; this.accel = 0; this.lastSpeed = 0; this.yawRate = 0; this.lastFace = 0; this.vx = 0; this.vz = 0; this.stepLen = 0.5;
     this.out = { walkAmt: 0, offL: 0, offR: 0, hipY: P.hipH };
   }
   stepFreq(v) { return (0.95 + 0.72 * v) * this.cadK * Math.sqrt(1.78 / this.P.H); }     // steps per second at speed v
@@ -116,12 +116,13 @@ class HumGait {
     this.t += dt;
     const spd = c.speed;
     this.accel = humDamp(this.accel, (spd - this.lastSpeed) / dt, dt, 0.12); this.lastSpeed = spd;
+    this.vx = humDamp(this.vx, (c.x - this.lx) / dt, dt, 0.08); this.vz = humDamp(this.vz, (c.z - this.lz) / dt, dt, 0.08);      // where the body is actually going (it may be sliding sideways through a corner)
     this.yawRate = humDamp(this.yawRate, humAng(c.face - this.lastFace) / dt, dt, 0.1); this.lastFace = c.face;
     const sf = Math.sin(c.face), cf = Math.cos(c.face), fx = -sf, fz = -cf, rx = cf, rz = -sf;
     const sit = c.sitK > 0.001, walking = c.walking && spd > 0.03 && !sit;
     this.speed = spd;
     const fq = this.stepFreq(Math.max(spd, 0.55)), Tc = 2 / fq, Tsw = Math.min(0.62, Tc * 0.37 + 0.03), Tst = Tc - Tsw;
-    const stepLen = spd / this.stepFreq(Math.max(spd, 0.2)) * (1 + this.lazy);
+    const stepLen = this.stepLen = spd / this.stepFreq(Math.max(spd, 0.2)) * (1 + this.lazy);
     // ---- stepping
     if (walking) {
       if (!this.wasWalking) {          // the first step goes with the foot that is further behind, after a short weight transfer; the other follows half a cycle later
@@ -135,7 +136,15 @@ class HumGait {
         if (f.tPlanted >= Tst && (o.planted || spd > 2.3) && o.tPlanted > 0.05) this.liftFoot(f, c, Tsw, stepLen, fx, fz);
       }
     } else for (const f of F) if (f.planted) f.tPlanted += dt;
-    for (const f of F) if (!f.planted) { f.sw.t += dt; if (f.sw.t >= f.sw.T) this.landFoot(f, c, fx, fz); }
+    for (const f of F) if (!f.planted) {
+      const sw = f.sw, live = walking && sw.walk;
+      // a swing was timed and aimed for the speed at its start: when the walk has got faster (out of a corner, say) it is hurried along, and the landing
+      // is re-aimed at where the body will be by then, so the stance leg is never left behind to be stretched
+      const rate = live ? humClamp(sw.T / Math.max(Tsw, 0.22), 1, 1.8) : 1;
+      sw.t += dt * rate;
+      if (live) this.aim(f, c, Math.max((sw.T - sw.t) / rate, 0.04), fx, fz);
+      if (sw.t >= sw.T) this.landFoot(f, c, fx, fz);
+    }
     this.wasWalking = walking;
     if (!walking) this.settle(dt, c);
     // a planted foot that the pelvis has left too far behind (a glitch, a shove, a very quick turn) steps at once
@@ -147,18 +156,26 @@ class HumGait {
     this.lx = c.x; this.lz = c.z;
   }
 
-  // a foot leaves the floor: where it lands follows from where the pelvis will be and how long the step is
-  liftFoot(f, c, Tsw, stepLen, fx, fz) {
-    const sw = f.sw, spd = Math.max(this.speed, 0), T = Tsw;
-    sw.t = 0; sw.T = T; sw.x0 = f.ax; sw.y0 = f.ay; sw.z0 = f.az; sw.g0 = f.pitch; sw.yaw0 = f.yaw;
-    const px = c.x + fx * (spd * T + 0.5 * this.accel * T * T), pz = c.z + fz * (spd * T + 0.5 * this.accel * T * T);
-    const heading = c.face + this.yawRate * T * 0.5, hx = -Math.sin(heading), hz = -Math.cos(heading), lx = Math.cos(heading), lz = -Math.sin(heading);
+  // where a swinging foot will land, `remain` seconds from now: about half a step ahead of where the pelvis will be, along the way the body is
+  // actually moving (the facing while it is hardly moving), and beside it on its own side
+  aim(f, c, remain, fx, fz) {
+    const sw = f.sw, spd = Math.max(this.speed, 0), vs = Math.hypot(this.vx, this.vz);
+    const ux = vs > 0.2 ? this.vx / vs : fx, uz = vs > 0.2 ? this.vz / vs : fz;
+    const dist = Math.max(0, spd * remain + 0.5 * this.accel * remain * remain);
+    const px = c.x + ux * dist, pz = c.z + uz * dist;
+    const heading = c.face + this.yawRate * remain * 0.5, lx = Math.cos(heading), lz = -Math.sin(heading);
     const wide = this.stepHalf * (1 + 0.25 * humClamp(Math.abs(this.yawRate) / 1.5, 0, 1));
     const turnAdj = humClamp(this.yawRate * f.side * 0.012, -0.04, 0.04);
-    // the heel lands about half a step ahead of the pelvis
-    const lead = 0.44 * stepLen + turnAdj;
-    sw.x1 = px + hx * lead + lx * f.side * wide; sw.z1 = pz + hz * lead + lz * f.side * wide;
+    const lead = 0.44 * this.stepLen + turnAdj;
+    sw.x1 = px + ux * lead + lx * f.side * wide; sw.z1 = pz + uz * lead + lz * f.side * wide;
     sw.yaw1 = heading - f.side * this.toeOut; sw.g1 = humMix(0.2, 0.3, humSS(0.4, 1.8, spd));
+  }
+
+  // a foot leaves the floor
+  liftFoot(f, c, Tsw, stepLen, fx, fz) {
+    const sw = f.sw;
+    sw.t = 0; sw.T = Tsw; sw.walk = true; sw.x0 = f.ax; sw.y0 = f.ay; sw.z0 = f.az; sw.g0 = f.pitch; sw.yaw0 = f.yaw;
+    this.aim(f, c, Tsw, fx, fz);
     f.planted = false; f.tPlanted = 0;
   }
 
@@ -183,7 +200,7 @@ class HumGait {
   }
   stepToNeutral(f, c, wd = 0.3) {
     const n = { x: 0, z: 0, yaw: 0 }; this.neutral(f, c.x, c.z, c.face, n);
-    const sw = f.sw; sw.t = 0; sw.T = humClamp(0.3 + 0.3 * wd, 0.3, 0.5);
+    const sw = f.sw; sw.t = 0; sw.walk = false; sw.T = humClamp(0.3 + 0.3 * wd, 0.3, 0.5);
     sw.x0 = f.ax; sw.y0 = f.ay; sw.z0 = f.az; sw.g0 = f.pitch; sw.yaw0 = f.yaw; sw.x1 = n.x; sw.z1 = n.z; sw.yaw1 = n.yaw; sw.g1 = 0.12;
     f.planted = false; f.tPlanted = 0; this.settleT = 0.1;
   }
@@ -217,6 +234,15 @@ class HumGait {
         f.pitch = tau < 0.3 ? humMix(sw.g0, k1, humSS(0, 0.3, tau)) : tau < 0.5 ? humMix(k1, k2, humSS(0.3, 0.5, tau)) : tau < 0.78 ? humMix(k2, k3, humSS(0.5, 0.78, tau)) : humMix(k3, sw.g1, humSS(0.78, 1, tau)); f.pivot = 0;
       }
     }
+    // a planted foot that the body has outrun is dragged along: a faint slide, in the worst case, beats the pelvis dropping towards it
+    if (!(c.seat && c.sitK > 0.001)) {
+      const rr = this.Lmax * this.reach, yLow = P.hipH * 0.88;
+      for (const f of F) if (f.planted) {
+        const hxl = f.side * P.hipX, hx = c.x + rx * (this.lat + hxl), hz = c.z + rz * (this.lat + hxl), dx = f.ax - hx, dz = f.az - hz, hd = Math.hypot(dx, dz);
+        const need = yLow - f.ay, lim = Math.sqrt(Math.max(0.0025, rr * rr - need * need));
+        if (hd > lim) { const k = (hd - lim) / hd; f.x -= dx * k; f.z -= dz * k; f.ax -= dx * k; f.az -= dz * k; }
+      }
+    }
     // ---- pelvis position and orientation
     const supL = F[0].planted ? humSS(0, 0.2, F[0].tPlanted) : 0, supR = F[1].planted ? humSS(0, 0.2, F[1].tPlanted) : 0, sup = supL + supR || 1;
     this.shiftT -= dt;
@@ -248,7 +274,7 @@ class HumGait {
     yMax = Math.max(yMax, P.hipH * 0.8);
     let y;
     if (c.seat && c.sitK > 0.001) { const k = humSS(0, 1, c.sitK); y = humMix(yMax, c.seat.h + 0.088 * sc, k); this.py = y; }
-    else { this.py = humDamp(this.py, yMax, dt, 0.03); y = Math.min(this.py, yReach); }
+    else { this.py = humDamp(this.py, yMax, dt, 0.03); y = Math.max(Math.min(this.py, yReach), P.hipH * 0.86); }
     out.hipY = y;
     const hips = this.b.hips;
     hips.position.set(this.lat, y, 0);

@@ -40,6 +40,7 @@ const HEADS = {
       const merge = (list) => { const g = mergeGeometries(list, false); g.applyMatrix4(M); g.computeBoundingSphere(); return g; };
       for (const t of [face, hair]) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; }
       this.fem = { face: merge(parts.face), hair: merge(parts.hair), faceTex: face, hairTex: hair };
+      this.thickenNeck(this.fem.face.attributes.position, -0.125, -0.175, 0.34, 0.2, 0, -0.03);
       this.fem.face = this.extendNeck(this.fem.face, 0.012, 0.115, 4, 0.1);
       // skin colour for the hands: average of a plain patch of cheek (clear of the painted blush)
       const c = makeCanvas(1, 1), x = c.getContext('2d'); x.drawImage(face.image, 82, 162, 16, 16, 0, 0, 1, 1);
@@ -133,6 +134,7 @@ const HEADS = {
       const r = Math.hypot(dx / 1.12, dz / 1.2); if (r <= 1) continue;
       const k = lerp(1, 1 / r, w); Pn.setX(i, -0.09 + dx * k); Pn.setZ(i, -0.3 + dz * k);
     }
+    this.thickenNeck(Pn, -0.9, -1.6, 0.17, 0, -0.09, -0.3);
     this.P = Pn;
     const head = new THREE.BufferGeometry();
     head.setAttribute('position', Pn); head.setAttribute('normal', N); head.setAttribute('uv', U);
@@ -147,12 +149,21 @@ const HEADS = {
       return [mk(1, 0.026), mk(-1, 0.01)];
     });
   },
+  // The scans' necks are narrow, straight tubes (the female model's is 7 cm across): widen everything below the jaw, from w = 0 at y0 to full
+  // at y1, across the neck by kx and towards the back by kzb (never forwards, so the chin and the throat keep their shapes). Positions only.
+  thickenNeck(P, y0, y1, kx, kzb, cx, cz) {
+    for (let i = 0; i < P.count; i++) {
+      const w = smooth(y0, y1, P.getY(i)); if (w <= 0) continue;
+      const z = P.getZ(i); P.setX(i, cx + (P.getX(i) - cx) * (1 + kx * w)); if (z < cz) P.setZ(i, cz + (z - cz) * (1 + kzb * w));
+    }
+    P.needsUpdate = true;
+  },
   // The scans end in a neck that stops just above the collar line. With the body's proportions (a neck 8-10 cm long in front)
   // that leaves a hole, so the open lower edge is carried on down into the shirt: `rings` copies of the boundary loop, lowered by
   // `depth` (geometry units) and widened a little, with the same texture coordinates. Works on indexed and non-indexed
   // geometry (welded here by position, normal and uv); only the lowest open edge (within `band` of the lowest boundary vertex) is
   // extended, the eye openings etc. are left alone.
-  extendNeck(geo, band, depth, rings = 3, flare = 0.12) {
+  extendNeck(geo, band, depth, rings = 3, flare = 0.12, dv = 0) {
     const P = geo.attributes.position, N = geo.attributes.normal, U = geo.attributes.uv, nv = P.count;
     let idx = geo.index ? Array.from(geo.index.array) : null, pos = Array.from(P.array), nrm = Array.from(N.array), uv = U ? Array.from(U.array) : null;
     if (!idx) {                                         // weld the triangle soup
@@ -185,7 +196,7 @@ const HEADS = {
       r = pos.length / 3; ring.set(key, r);
       pos.push(cx + (x - cx) * f, y - depth * t, cz + (z - cz) * f);
       const nx = nrm[3 * v], ny = nrm[3 * v + 1] - 0.25 * t, nz = nrm[3 * v + 2], l = Math.hypot(nx, ny, nz) || 1; nrm.push(nx / l, ny / l, nz / l);
-      if (uv) uv.push(uv[2 * v], uv[2 * v + 1]);
+      if (uv) uv.push(uv[2 * v], uv[2 * v + 1] - dv * j);        // dv: carry the texture on down the neck (the atlas goes on as smooth skin) instead of smearing its last row
       return r;
     };
     for (const [a, b] of edges) for (let j = 0; j < rings; j++) {
@@ -365,7 +376,7 @@ const HEADS = {
     grp.add(inner);
     const skinMap = this.skinTexture(o);
     const skinMat = new THREE.MeshPhysicalMaterial({ map: skinMap, normalMap: this.nrm, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.52, metalness: 0, envMapIntensity: 0.5, specularIntensity: 0.6, sheen: 0.5, sheenRoughness: 0.75, sheenColor: new THREE.Color(0xff8f78) });
-    const head = new THREE.Mesh(o.female ? (this._femX ||= this.extendNeck(this.femaleGeo(), 0.4, 1.4, 3, 0.12)) : (this._headX ||= this.extendNeck(this.headGeo, 0.4, 1.4, 3, 0.12)), skinMat); head.castShadow = true; head.receiveShadow = true; inner.add(head);
+    const head = new THREE.Mesh(o.female ? (this._femX ||= this.extendNeck(this.femaleGeo(), 0.4, 1.4, 3, 0.12)) : (this._headX ||= this.extendNeck(this.headGeo, 0.4, 1.4, 3, 0.04, 0.045)), skinMat); head.castShadow = true; head.receiveShadow = true; inner.add(head);
     // eye sockets (dark back-face so the openings never show through the skull)
     const socketMat = new THREE.MeshStandardMaterial({ color: 0x5a2c26, roughness: 0.6 });
     const irisMat = new THREE.MeshStandardMaterial({ map: this.irisTexture(o.iris || '#5a3a22'), roughness: 0.12, metalness: 0, envMapIntensity: 0.8 });
