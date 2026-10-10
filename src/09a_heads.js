@@ -40,7 +40,7 @@ const HEADS = {
       const merge = (list) => { const g = mergeGeometries(list, false); g.applyMatrix4(M); g.computeBoundingSphere(); return g; };
       for (const t of [face, hair]) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; }
       this.fem = { face: merge(parts.face), hair: merge(parts.hair), faceTex: face, hairTex: hair };
-      this.thickenNeck(this.fem.face.attributes.position, -0.125, -0.175, 0.34, 0.2, 0, -0.03);
+      this.thickenNeck(this.fem.face.attributes.position, -0.125, -0.175, 0.3, 0.1, 0, -0.03);
       this.fem.face = this.extendNeck(this.fem.face, 0.012, 0.115, 4, 0.1);
       // skin colour for the hands: average of a plain patch of cheek (clear of the painted blush)
       const c = makeCanvas(1, 1), x = c.getContext('2d'); x.drawImage(face.image, 82, 162, 16, 16, 0, 0, 1, 1);
@@ -376,7 +376,7 @@ const HEADS = {
     grp.add(inner);
     const skinMap = this.skinTexture(o);
     const skinMat = new THREE.MeshPhysicalMaterial({ map: skinMap, normalMap: this.nrm, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.52, metalness: 0, envMapIntensity: 0.5, specularIntensity: 0.6, sheen: 0.5, sheenRoughness: 0.75, sheenColor: new THREE.Color(0xff8f78) });
-    const head = new THREE.Mesh(o.female ? (this._femX ||= this.extendNeck(this.femaleGeo(), 0.4, 1.4, 3, 0.12)) : (this._headX ||= this.extendNeck(this.headGeo, 0.4, 1.4, 3, 0.04, 0.045)), skinMat); head.castShadow = true; head.receiveShadow = true; inner.add(head);
+    const head = new THREE.Mesh(o.female ? (this._femX ||= this.extendNeck(this.femaleGeo(), 0.4, 1.4, 3, 0.12)) : (this._headX ||= this.extendNeck(this.headGeo, 0.4, 1.4, 3, 0.04, 0.025)), skinMat); head.castShadow = true; head.receiveShadow = true; inner.add(head);
     // eye sockets (dark back-face so the openings never show through the skull)
     const socketMat = new THREE.MeshStandardMaterial({ color: 0x5a2c26, roughness: 0.6 });
     const irisMat = new THREE.MeshStandardMaterial({ map: this.irisTexture(o.iris || '#5a3a22'), roughness: 0.12, metalness: 0, envMapIntensity: 0.8 });
