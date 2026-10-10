@@ -6,7 +6,7 @@
 //   layer 0  drawn by the camera and mirrored in the sea
 //   layer 2  drawn by the camera only (too small to register in the blurred, rippled reflection; the small things of the
 //            bridge – buttons, instruments, crew – are always here, the mirrored camera never sees them)
-//   layer 3  not drawn at all (smaller than ~¾ of a pixel)
+//   layer 3  not drawn at all (smaller than ~¾ of a pixel, or beyond the mesh's own userData.farCull distance)
 // Layers instead of .visible, because the game toggles .visible itself (flashers, crew, lights) and the shadow pass honours
 // layers too. Thresholds are in CSS pixels and follow the field of view, so binoculars bring the small things back.
 // ============================================================================
@@ -52,9 +52,9 @@ const LOD = {
     for (const e of this.list) {
       const o = e.mesh;
       c.copy(e.center).applyMatrix4(o.matrixWorld);
-      const r = e.radius * o.matrixWorld.getMaxScaleOnAxis(), d = Math.max(c.distanceTo(cp) - r, 1), q = r / d;
+      const r = e.radius * o.matrixWorld.getMaxScaleOnAxis(), d = Math.max(c.distanceTo(cp) - r, 1), q = r / d, fc = o.userData.farCull;
       let want = 0;
-      if (q < cull * (e.state === 3 ? H : 1) && !e.inBridge) want = 3;
+      if ((q < cull * (e.state === 3 ? H : 1) || (fc && d > fc * (e.state === 3 ? 0.93 : 1))) && !e.inBridge) want = 3;       // (farCull: detail that is only worth drawing within this many metres)
       else if (e.inBridge ? r < 0.8 : q < mirror * (e.state === 2 ? H : 1)) want = 2;
       if (want !== e.state) { e.state = want; o.layers.set(want); }
       if (want === 2) nm++; else if (want === 3) nc++;

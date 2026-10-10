@@ -138,7 +138,7 @@ function initMaterials() {
   };
   MAT.concrete = paved('concrete', 1 / 48, 0xeeeeea, 0.9);
   MAT.asphalt = paved('asphalt', 1 / 40, 0xe0e0e0, 1);
-  MAT.grass = std(0xc4cc9a, 1, 0, { map: tex('grass', 1 / 30) });
+  { const lt = landTexture(); lt.wrapS = lt.wrapT = THREE.RepeatWrapping; lt.repeat.set(1 / 512, 1 / 512); MAT.grass = std(0xe6ead2, 1, 0, { map: lt }); }       // the mainland: a patchwork of fields (512 m tile)
   MAT.sand = std(0xd8c9a6, 1, 0, { map: tex('sand', 1 / 25) });
   // rock armour: one texture (and normal map) for the flat tops and the sloped boxes, both with UVs in metres (28 m tile)
   const rk = rockTexture(), rkSet = (t) => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / 28, 1 / 28); return t; };
@@ -180,7 +180,8 @@ function initMaterials() {
   MAT.office = std(0xffffff, 0.5, 0.2, { map: fac({ cols: 8, rows: 8, wall: '#c9d0d6', glass: '#2a4458', mx: 0.08, my: 0.15, wh: 0.7, night: false, seed: 11 }) });
   MAT.building = std(0xffffff, 0.8, 0.05, { map: fac({ cols: 6, rows: 6, wall: '#b9b3a8', glass: '#34414b', seed: 12 }) });
   MAT.hall = std(0xffffff, 0.8, 0.1, { map: fac({ cols: 12, rows: 3, wall: '#8fa1ad', glass: '#2c3a44', mx: 0.3, my: 0.6, wh: 0.15, seed: 13 }) });
-  MAT.tank = std(0xe3e3de, 0.5, 0.2);
+  { const tk = tankTexture(), set = (t) => { if (t) t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; };
+    MAT.tank = std(0xf2f2ee, 0.55, 0.2, tk.normal ? { map: set(tk.map), normalMap: set(tk.normal), normalScale: new THREE.Vector2(0.8, 0.8) } : { map: set(tk.map) }); }
   if (ENV.night) {
     const em = (o) => { const t = emissiveWindowsTexture(o); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; };
     MAT.office.emissiveMap = em({ cols: 8, rows: 8, mx: 0.08, my: 0.15, wh: 0.7, seed: 11, litP: 0.5 }); MAT.office.emissive.set(0xffffff); MAT.office.emissiveIntensity = 1.3;
@@ -257,6 +258,46 @@ function flatPoly(poly, y, mat, parent) {
   g.computeVertexNormals();
   const m = new THREE.Mesh(g, mat); m.receiveShadow = true; parent.add(m);
   return m;
+}
+
+// Tree crowns, one merged geometry each: lumpy lobes (or stacked cones) with vertex colours that are darker underneath and lighter on top.
+// Kinds: 'round' (broadleaf, ~3.1 high), 'poplar' (narrow and tall, ~5.7) and 'conifer' (dark stacked cones, ~4.2).
+function treeCrown(kind, low = false) {
+  const parts = [];
+  const blob = (r, cx, cy, cz, sx, sy, sz, tone) => {
+    const g = new THREE.IcosahedronGeometry(r, low ? 0 : 1), pos = g.attributes.position, nor = g.attributes.normal, col = [];
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), l = Math.hypot(x, y, z) || 1, ux = x / l, uy = y / l, uz = z / l;
+      const lump = 1 + 0.17 * Math.sin(ux * 9 + cy * 3) * Math.sin(uz * 8 - cx * 2) + 0.1 * Math.sin(uy * 12 + ux * 5 + cz);
+      pos.setXYZ(i, cx + ux * r * lump * sx, cy + uy * r * lump * sy, cz + uz * r * lump * sz);
+      const nx = ux / sx, ny = uy / sy, nz = uz / sz, nl = Math.hypot(nx, ny, nz); nor.setXYZ(i, nx / nl, ny / nl, nz / nl);
+      col.push(tone, tone, tone);
+    }
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    parts.push(g);
+  };
+  const cone = (r, h, cy, tone) => {
+    const g = new THREE.ConeGeometry(r, h, low ? 6 : 10, 1, true).toNonIndexed(), pos = g.attributes.position, col = [];
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), a = Math.atan2(z, x), j = y < 0 ? 1 + 0.16 * Math.sin(a * 5 + cy) : 1;      // ragged lower edge
+      pos.setXYZ(i, x * j, y + cy + h / 2, z * j); col.push(tone, tone, tone);
+    }
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); parts.push(g);
+  };
+  if (kind === 'round') {
+    blob(1.0, 0, 1.75, 0, 1, 0.92, 1, 1.0); blob(0.74, 0.72, 1.35, 0.2, 1, 0.9, 1, 0.95); blob(0.7, -0.62, 1.45, -0.4, 1, 0.9, 1, 1.05);
+    if (!low) { blob(0.66, 0.1, 2.35, 0.5, 1, 0.9, 1, 1.1); blob(0.62, -0.4, 1.1, 0.62, 1, 0.9, 1, 0.9); blob(0.58, 0.45, 1.15, -0.62, 1, 0.9, 1, 0.92); }
+  } else if (kind === 'poplar') {
+    const lobes = [[0.9, 1.5, 0.62, 1.3, 0.9], [0.85, 2.8, 0.6, 1.3, 1.0], [0.74, 4.0, 0.56, 1.3, 1.05], [0.55, 5.0, 0.5, 1.3, 1.1]];
+    (low ? [lobes[0], lobes[2]] : lobes).forEach(([r, y, sx, sy, t]) => blob(r, 0, y, 0, sx, sy, sx, t));
+  } else {
+    cone(1.45, 1.8, 0.7, 0.9); cone(1.12, 1.7, 1.7, 1.0); if (!low) cone(0.8, 1.6, 2.7, 1.08);
+  }
+  const g = mergeGeometries(parts.map((q) => (q.index ? q.toNonIndexed() : q)), false);
+  const pos = g.attributes.position, col = g.attributes.color; let y0 = 1e9, y1 = -1e9;
+  for (let i = 0; i < pos.count; i++) { y0 = Math.min(y0, pos.getY(i)); y1 = Math.max(y1, pos.getY(i)); }
+  for (let i = 0; i < pos.count; i++) { const k = (0.5 + 0.55 * smooth(y0, y1, pos.getY(i))) * col.getX(i); col.setXYZ(i, k, k, k); }      // darker underneath, light on top
+  return g;
 }
 
 async function buildWorld(progress) {
@@ -397,14 +438,15 @@ async function buildWorld(progress) {
       }
     }
   };
+  const hang = [], Bg = new Batcher();                          // containers hanging from the yard gantries' spreaders; the gantries' own batch (drawn within 5 km only)
   for (let x = -1070; x < 1400; x += 52) {
     addBlock(x, -805, 9, 24, 5);
     addBlock(x, -1135, 9, 20, 4, 0, 0.85);
     const xL = x - 3.2, xR = x + 8 * 2.9 + 3.2;
     for (const [z0, z1] of [[-800, -1105], [-1130, -1385]]) {
       B.box(MAT.steel, 0.3, 0.12, z0 - z1, xL, QUAY_H + 0.31, (z0 + z1) / 2); B.box(MAT.steel, 0.3, 0.12, z0 - z1, xR, QUAY_H + 0.31, (z0 + z1) / 2);
-      buildASC(B, root, xL, xR, z0 - 4 - rand() * 18);           // landside ASC at the interchange
-      buildASC(B, root, xL, xR, z0 - 60 - rand() * (z0 - z1 - 80));
+      buildASC(Bg, root, xL, xR, z0 - 4 - rand() * 18, hang);    // landside ASC at the interchange
+      buildASC(Bg, root, xL, xR, z0 - 60 - rand() * (z0 - z1 - 80), hang);
     }
     // interchange zone hatching at the block end
     for (let k = 0; k < 6; k++) B.box(MAT.lineYellow, 0.5, 0.04, 9, x + 1 + k * 4, QUAY_H + 0.3, -812, Math.PI / 4);
@@ -413,7 +455,8 @@ async function buildWorld(progress) {
   for (let x = -1000; x < 700; x += 60) addBlock(x, 1150, 8, 12, 6, 0, 0.85, 0);
   // reefer racks (powered stacks) at the back of the north blocks
   for (let x = -1070; x < 1400; x += 104) for (let k = 0; k < 4; k++) { B.box(MAT.steel, 0.3, 14, 0.3, x - 1.5, QUAY_H + 7, -1150 - k * 50); B.box(MAT.steel, 0.3, 0.2, 0.9, x - 1.5, QUAY_H + 5.4 + (k % 2) * 5.2, -1150 - k * 50); }
-  buildContainers(yard, root, false);
+  buildContainers(yard, root, false); buildContainers(hang, root, false);
+  for (const m of Bg.build(root, { cast: false, receive: true })) m.userData.farCull = 5000;
 
   // ---------- ground markings: apron lanes, crane rail trench, roads
   const H1 = QUAY_H + 0.31;
@@ -450,15 +493,42 @@ async function buildWorld(progress) {
   B.cyl(MAT.white, 5, 6, 38, -1160, QUAY_H + 19, -800, 16);
   B.cyl(MAT.glass, 9, 8, 6, -1160, QUAY_H + 41, -800, 16);
   B.cyl(MAT.white, 9.6, 9.6, 1, -1160, QUAY_H + 44.5, -800, 16);
-  // tank farm & industry (south)
-  for (let i = 0; i < 18; i++) {
-    const x = -950 + (i % 6) * 95, z = 1650 + Math.floor(i / 6) * 95, r = rr(28, 38), h = rr(16, 24);
-    B.cyl(MAT.tank, r, r, h, x, QUAY_H + h / 2, z, 32);
-    B.cyl(MAT.grey, r * 0.98, r, 1.2, x, QUAY_H + h + 0.6, z, 32);
+  // tank farm & industry (south): shells of welded plates (UVs in plate units), a conical roof with a rim and handrail, a wind girder, a spiral
+  // stair, pipe runs between the tanks and a low bund wall round the farm
+  {
+    const tanks = [];
+    for (let i = 0; i < 18; i++) tanks.push({ x: -950 + (i % 6) * 95, z: 1650 + Math.floor(i / 6) * 95, r: rr(28, 38), h: rr(16, 24), a0: rand() * 6.28 });
+    for (const { x, z, r, h, a0 } of tanks) {
+      const g = new THREE.CylinderGeometry(r, r, h, 48, 1, true), uv = g.attributes.uv, nu = Math.round(2 * Math.PI * r / 8);
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * nu, uv.getY(i) * h / 7.2);
+      B.add(g, MAT.tank, MX(x, QUAY_H + h / 2, z));
+      B.cyl(MAT.grey, r * 0.98, r, 1.2, x, QUAY_H + h + 0.6, z, 48);                                      // roof rim
+      B.add(new THREE.ConeGeometry(r * 0.98, 2.4, 48), MAT.grey, MX(x, QUAY_H + h + 2.4, z));              // shallow conical roof
+      B.add(new THREE.TorusGeometry(r * 0.985, 0.06, 4, 72), MAT.yellow, MX(x, QUAY_H + h + 1.75, z, Math.PI / 2, 0, 0));      // roof handrail
+      B.cyl(MAT.grey, r + 0.4, r + 0.4, 0.35, x, QUAY_H + h - 1.6, z, 48);                               // wind girder
+      B.cyl(MAT.steel, 0.6, 0.6, 1.4, x, QUAY_H + h + 4.2, z, 10);                                          // roof vent
+      for (const [dx, dz] of [[0.7, 0.4], [-0.6, 0.8]]) B.cyl(MAT.grey, 0.35, 0.35, 0.8, x + r * 0.45 * dx, QUAY_H + h + 3.3, z + r * 0.45 * dz, 8);
+      let prev = null;                                                                                      // spiral stair up the shell
+      for (let k = 0; k <= 26; k++) {
+        const t = k / 26, a = a0 + t * 4.6, rr2 = r + 0.55, p = new THREE.Vector3(x + Math.cos(a) * rr2, QUAY_H + 0.4 + t * (h + 0.6), z + Math.sin(a) * rr2);
+        if (prev) { B.beam(MAT.steel, prev, p, 0.9, 0.14); const o = new THREE.Vector3(Math.cos(a) * 0.45, 1.0, Math.sin(a) * 0.45); B.beam(MAT.yellow, prev.clone().add(o), p.clone().add(o), 0.05, 0.05); }
+        prev = p;
+      }
+    }
+    for (let i = 0; i < 18; i++) if (i % 6 < 5) {                                                           // pipe runs between neighbours along x
+      const a = tanks[i], b = tanks[i + 1], x0 = a.x + a.r, x1 = b.x - b.r;
+      for (const dz of [-3, 2.2]) { B.cyl(MAT.grey, 0.45, 0.45, x1 - x0, (x0 + x1) / 2, QUAY_H + 1.5, a.z + dz, 10, 0, 0, Math.PI / 2); for (let px = x0 + 4; px < x1; px += 10) B.box(MAT.steel, 0.4, 1.4, 0.4, px, QUAY_H + 0.7, a.z + dz); }
+    }
+    const bx0 = -950 - 48, bx1 = -950 + 5 * 95 + 48, bz0 = 1650 - 48, bz1 = 1650 + 2 * 95 + 48;           // bund wall
+    for (const [w, d, cx, cz] of [[bx1 - bx0, 1.2, (bx0 + bx1) / 2, bz0], [bx1 - bx0, 1.2, (bx0 + bx1) / 2, bz1], [1.2, bz1 - bz0, bx0, (bz0 + bz1) / 2], [1.2, bz1 - bz0, bx1, (bz0 + bz1) / 2]]) B.box(MAT.concrete, w, 1.6, d, cx, QUAY_H + 0.8, cz);
   }
   for (const [x, z, h] of [[600, 2100, 110], [720, 2150, 90], [2400, 1800, 140]]) {
-    B.cyl(MAT.white, 3, 4.5, h, x, QUAY_H + h / 2, z, 16);
-    for (let k = 0; k < 4; k++) B.cyl(MAT.red, 3.2 - k * 0.2, 3.3 - k * 0.2, 8, x, QUAY_H + h - 6 - k * 22, z, 16);
+    B.cyl(MAT.white, 3, 4.5, h, x, QUAY_H + h / 2, z, 24);
+    for (let k = 0; k < 4; k++) B.cyl(MAT.red, 3.2 - k * 0.2, 3.3 - k * 0.2, 8, x, QUAY_H + h - 6 - k * 22, z, 24);
+    const rAt = (y) => 4.5 - 1.5 * (y / h);                                                              // the stack tapers: platforms, handrails and a caged ladder follow it
+    for (const y of [h * 0.35, h * 0.62, h * 0.9]) { B.cyl(MAT.grey, rAt(y) + 1.2, rAt(y) + 1.2, 0.3, x, QUAY_H + y, z, 24); B.add(new THREE.TorusGeometry(rAt(y) + 1.15, 0.05, 4, 40), MAT.yellow, MX(x, QUAY_H + y + 1.0, z, Math.PI / 2, 0, 0)); }
+    B.beam(MAT.steel, new THREE.Vector3(x + 4.65, QUAY_H, z), new THREE.Vector3(x + 3.15, QUAY_H + h, z), 0.7, 0.14);
+    B.cyl(MAT.darkSteel, 3.25, 3.0, 1.6, x, QUAY_H + h - 0.2, z, 24);                                   // sooty lip at the top
     WORLD.flashers.push(glowSprite(0xff2a1a, 22, root, x, QUAY_H + h + 3, z, '255,60,40', 3));
   }
   // refinery flare
@@ -499,26 +569,46 @@ async function buildWorld(progress) {
     const [x0, z0] = pyl[i], [x1, z1] = pyl[i + 1];
     for (let k = 0; k < 8; k++) { const t0 = k / 8, t1 = (k + 1) / 8, sag = (t) => -7 * 4 * t * (1 - t); B.beam(MAT.darkSteel, new THREE.Vector3(lerp(x0, x1, t0), QUAY_H + hy + sag(t0), lerp(z0, z1, t0) + off), new THREE.Vector3(lerp(x0, x1, t1), QUAY_H + hy + sag(t1), lerp(z0, z1, t1) + off), 0.08); }
   }
-  // trees: shelter belts, parks and dune scrub (instanced)
+  // trees: shelter belts, parks and dune scrub (instanced): three kinds, each tree with its own height, tint and lean. The belts and the scrub are
+  // detailed crowns drawn within 6 km; the inland woods beyond the terminal are far too distant for that and get a cheaper crown
   {
     const spots = [];
-    const addClump = (cx, cz, n, r) => { for (let k = 0; k < n; k++) { const a = rand() * 7, d = Math.sqrt(rand()) * r; spots.push([cx + Math.cos(a) * d, cz + Math.sin(a) * d, rr(6, 13)]); } };
-    for (let x = -1100; x < 2600; x += 18) spots.push([x + rr(-4, 4), -1790 + rr(-8, 8), rr(8, 13)]);          // belt behind the terminal
-    for (let z = -1650; z < 1500; z += 20) spots.push([2640 + rr(-5, 5), z, rr(8, 12)]);
-    for (let i = 0; i < 60; i++) addClump(rr(2800, 11500), rr(-7500, 7000), ri(8, 30), rr(40, 160));
-    for (let i = 0; i < 40; i++) addClump(rr(-1150, -950), rr(1600, 8800), ri(4, 10), 30);
-    const crownG = new THREE.IcosahedronGeometry(1, 1); crownG.translate(0, 1.6, 0);
-    const trunkG = new THREE.CylinderGeometry(0.12, 0.16, 1.2, 5); trunkG.translate(0, 0.6, 0);
-    const crowns = new THREE.InstancedMesh(crownG, MAT.tree, spots.length), crowns2 = new THREE.InstancedMesh(crownG, MAT.tree2, spots.length), trunks = new THREE.InstancedMesh(trunkG, MAT.trunk, spots.length);
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(); let n1 = 0, n2 = 0;
-    spots.forEach(([x, z, h], i) => {
-      const s = h / 3.2;
-      m4.compose(new THREE.Vector3(x, QUAY_H + 0.2, z), q.setFromAxisAngle(_up, rand() * 6), new THREE.Vector3(s * rr(0.8, 1.2), s, s * rr(0.8, 1.2)));
-      if (rand() < 0.5) crowns.setMatrixAt(n1++, m4); else crowns2.setMatrixAt(n2++, m4);
-      trunks.setMatrixAt(i, m4);
-    });
-    crowns.count = n1; crowns2.count = n2;
-    for (const im of [crowns, crowns2, trunks]) { im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); root.add(im); }
+    const kindOf = (u, mix) => (u < mix[0] ? 'round' : u < mix[0] + mix[1] ? 'poplar' : 'conifer');
+    const BELT = [0.55, 0.25], WILD = [0.5, 0.12];
+    const addClump = (cx, cz, n, r, mix, grp, hMin = 6, hMax = 13) => { for (let k = 0; k < n; k++) { const a = rand() * 7, d = Math.sqrt(rand()) * r; spots.push([cx + Math.cos(a) * d, cz + Math.sin(a) * d, rr(hMin, hMax), kindOf(rand(), mix), grp]); } };
+    for (let x = -1100; x < 2600; x += 18) spots.push([x + rr(-4, 4), -1790 + rr(-8, 8), rr(8, 13), kindOf(rand(), BELT), 'near']);          // belt behind the terminal
+    for (let z = -1650; z < 1500; z += 20) spots.push([2640 + rr(-5, 5), z, rr(8, 12), kindOf(rand(), BELT), 'near']);
+    for (let i = 0; i < 60; i++) addClump(rr(2800, 11500), rr(-7500, 7000), ri(8, 30), rr(40, 160), WILD, 'far');
+    for (let i = 0; i < 40; i++) addClump(rr(-1150, -950), rr(1600, 8800), ri(4, 10), 30, [1, 0], 'near', 3, 7);                      // dune scrub: low and round
+    const geo = {}, hK = { round: 3.4, poplar: 6.0, conifer: 4.4 };
+    for (const k of ['round', 'poplar', 'conifer']) geo[k] = { near: treeCrown(k), far: treeCrown(k, true) };
+    const cm = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, vertexColors: true });
+    const trunkG = new THREE.CylinderGeometry(0.1, 0.19, 2.0, 6); trunkG.translate(0, 1.0, 0);
+    const list = {}, m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), col = new THREE.Color();
+    spots.forEach(([x, z, h, k, g]) => (list[k + g] = list[k + g] || { k, g, a: [] }).a.push([x, z, h]));
+    const tint = { round: () => col.setHSL(0.235 + rr(-0.03, 0.045), 0.3 + rr(-0.08, 0.14), 0.2 + rr(-0.03, 0.09)), poplar: () => col.setHSL(0.255 + rr(-0.02, 0.03), 0.34 + rr(-0.06, 0.1), 0.22 + rr(-0.03, 0.07)), conifer: () => col.setHSL(0.31 + rr(-0.02, 0.02), 0.28 + rr(-0.05, 0.06), 0.1 + rr(-0.02, 0.04)) };
+    const trunkList = { near: [], far: [] };
+    for (const { k, g, a } of Object.values(list)) {
+      const crowns = new THREE.InstancedMesh(geo[k][g], cm, a.length);
+      a.forEach(([x, z, h], i) => {
+        const sc = h / hK[k], lean = rr(-0.05, 0.05);
+        const pos = new THREE.Vector3(x, QUAY_H + 0.2, z), scl = new THREE.Vector3(sc * rr(0.85, 1.15), sc * rr(0.92, 1.1), sc * rr(0.85, 1.15));
+        m4.compose(pos, q.setFromEuler(e.set(lean, rand() * 6, rr(-0.05, 0.05))), scl);
+        crowns.setMatrixAt(i, m4); crowns.setColorAt(i, tint[k]());
+        if (k !== 'conifer') trunkList[g].push(m4.clone());
+      });
+      crowns.instanceMatrix.needsUpdate = true; crowns.instanceColor.needsUpdate = true; crowns.receiveShadow = true; crowns.computeBoundingSphere();
+      if (g === 'near') crowns.userData.farCull = 6000;
+      root.add(crowns);
+    }
+    for (const g of ['near', 'far']) {
+      if (!trunkList[g].length) continue;
+      const trunks = new THREE.InstancedMesh(trunkG, MAT.trunk, trunkList[g].length);
+      trunkList[g].forEach((m, i) => trunks.setMatrixAt(i, m));
+      trunks.instanceMatrix.needsUpdate = true; trunks.receiveShadow = true; trunks.computeBoundingSphere();
+      if (g === 'near') trunks.userData.farCull = 6000;
+      root.add(trunks);
+    }
   }
   // chimney smoke (billboard puffs)
   WORLD.smoke = [];
@@ -665,10 +755,26 @@ function buildSTS(B, root, x, zq, rot, state, shipTop = 35, num = 1) {
   // twin box girders (backreach) with cross ties and walkway handrails
   for (const u of [-4.3, 4.3]) { C.box(blue, 1.6, 3.6, (gw + 3) - (gl - 27), u, gy, ((gw + 3) + (gl - 27)) / 2); C.box(MAT.yellow, 0.06, 1.0, (gw + 3) - (gl - 27), u + Math.sign(u) * 1.0, gy + 2.3, ((gw + 3) + (gl - 27)) / 2); }
   for (let w = gl - 25; w < gw + 3; w += 6) C.box(blue, 8.6, 0.5, 0.6, 0, gy + 1.6, w);
+  // plate stiffeners on the outer faces of the girders, and the handrail posts of their walkways
+  for (const u of [-4.3, 4.3]) { const sg = Math.sign(u); for (let w = gl - 26; w < gw + 2.5; w += 2.75) { C.box(blue, 0.14, 3.3, 0.2, u + sg * 0.87, gy, w); C.box(blue, 0.14, 0.2, 0.2, u - sg * 0.87, gy + 1.75, w); } for (let w = gl - 26; w < gw + 3; w += 3.5) C.box(MAT.yellow, 0.06, 1.0, 0.06, u + sg * 1.0, gy + 2.3, w); }
   // machinery house with blue band and crane number
   C.box(white, 13, 7.5, 15, 0, gy + 1.8 + 3.75, gl - 16);
   C.box(blue, 13.05, 0.9, 15.05, 0, gy + 1.8 + 6.4, gl - 16);
   for (let k = 0; k < 3; k++) C.box(MAT.grey, 2, 1.2, 2, -4 + k * 4, gy + 10.3, gl - 16);
+  { // the machinery house: louvres, windows, doors, roof vents, exhausts, a ladder to the roof
+    const hz = gl - 16, hy = gy + 1.8;
+    for (const sx of [-1, 1]) {
+      for (let k = 0; k < 7; k++) C.box(dark, 0.08, 0.14, 4.6, sx * 6.53, hy + 1.3 + k * 0.32, hz + 3.6);
+      for (let k = 0; k < 5; k++) C.box(dark, 0.08, 0.14, 2.8, sx * 6.53, hy + 2.4 + k * 0.32, hz - 4.2);
+      C.box(MAT.glass, 0.06, 1.1, 3.6, sx * 6.52, hy + 4.6, hz - 4.4);
+      C.box(MAT.grey, 0.1, 2.5, 1.2, sx * 6.53, hy + 1.25, hz - 6.4);
+    }
+    for (let k = 0; k < 5; k++) C.box(dark, 3.6, 0.14, 0.08, -3 + (k % 2) * 6, hy + 1.4 + (k >> 1) * 0.32, hz + 7.53);
+    for (const [x, z] of [[-4, -3.5], [4, -3.5], [0, 4.2]]) { C.cyl(MAT.grey, 0.65, 0.65, 0.5, x, gy + 9.55, hz + z, 12); C.box(dark, 1.5, 0.12, 1.5, x, gy + 9.85, hz + z); }
+    C.cyl(dark, 0.35, 0.38, 3.2, 5.2, gy + 11.3, hz - 5.5, 10); C.cyl(dark, 0.3, 0.33, 2.4, 4.4, gy + 10.9, hz - 5.5, 10);
+    for (let k = 0; k < 12; k++) C.box(MAT.steel, 0.9, 0.06, 0.05, -5.6, gy + 2.2 + k * 0.62, hz + 7.55);
+    for (const x of [-6.0, -5.2]) C.box(MAT.steel, 0.05, 7.4, 0.05, x, gy + 5.5, hz + 7.55);
+  }
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(6, 4), new THREE.MeshStandardMaterial({ map: labelTexture(String(num), { w: 128, h: 96, bg: '#e4e7e8', color: '#2a6aa3', size: 80 }), roughness: 0.6 }));
   sign.position.copy(P(0, gl - 16 - 7.56, gy + 6.5)); sign.rotation.y = rot + Math.PI; root.add(sign);
   // A-frame apex with forestays and backstays
@@ -680,6 +786,16 @@ function buildSTS(B, root, x, zq, rot, state, shipTop = 35, num = 1) {
   const bp = (t, dy = 0) => V(0, gy + Math.sin(ang) * t + dy * Math.cos(ang), gw + 3 + Math.cos(ang) * t - dy * Math.sin(ang));
   for (const u of [-4.3, 4.3]) for (let k = 0; k < 6; k++) { const a = bp(k * Lb / 6), b = bp((k + 1) * Lb / 6); a.x = b.x = u; C.beam(blue, a, b, 1.6, 3.6 - k * 0.35); }
   for (let k = 1; k <= 10; k++) { const p = bp(k * Lb / 10, 1.4); C.box(blue, 8.6, 0.45, 0.5, 0, p.y, p.z); }
+  // boom: stiffener ribs on the outer faces, trolley rails on top, handrails of the catwalk along the outside
+  for (const u of [-4.3, 4.3]) {
+    const sg = Math.sign(u);
+    for (let k = 0; k < 6; k++) {
+      const hh = (3.6 - k * 0.35) / 2 - 0.1;
+      for (let j = 0; j < 4; j++) { const t = (k * Lb / 6) + (j + 0.5) * Lb / 24, a = bp(t, -hh), b = bp(t, hh); a.x = b.x = u + sg * 0.87; C.beam(blue, a, b, 0.14, 0.2); }
+    }
+    { const a = bp(0, 1.9), b = bp(Lb, 1.9); a.x = b.x = u; C.beam(dark, a, b, 0.35, 0.25); }
+    { const a = bp(0, 1.5), b = bp(Lb, 0.9); a.x = b.x = u + sg * 1.25; C.beam(MAT.yellow, a, b, 0.05, 0.05); const c = bp(0, 2.1), d = bp(Lb, 1.5); c.x = d.x = u + sg * 1.25; C.beam(MAT.yellow, c, d, 0.05, 0.05); }
+  }
   for (const u of [-3.2, 3.2]) { for (const t of [0.52, 0.97]) { const b = bp(t * Lb, 1.8); b.x = u; C.beam(dark, V(u * 0.95, ay, ax), b, 0.5); } C.beam(dark, V(u * 0.95, ay, ax), V(u, gy + 1.8, gl - 27), 0.5); }
   // stair tower up the landside leg
   for (let k = 0; k < 8; k++) { const y0 = H0 + 6 + k * 5.1, s = k % 2 ? 1 : -1; C.beam(MAT.yellow, V(10.7, y0, gl - 1.3 * s), V(10.7, y0 + 5.1, gl + 1.3 * s), 0.9, 0.15); C.box(MAT.steel, 1.5, 0.12, 3.4, 10.7, y0 + 5.1, gl); }
@@ -698,7 +814,8 @@ function buildSTS(B, root, x, zq, rot, state, shipTop = 35, num = 1) {
     const spreader = new THREE.Group(), sb = new Batcher();
     sb.box(MAT.yellow, 2.6, 0.9, 12.4, 0, 0, 0); sb.box(MAT.darkSteel, 2, 1.2, 3, 0, 1.0, 0);
     sb.build(spreader, { dynamic: true });
-    const cable = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1, 1.2), dark); cable.geometry.translate(0, -0.5, 0);
+    const cable = new THREE.Group();                                                     // four hoist ropes from the trolley to the spreader's corners (scaled in y by the animation)
+    for (const dx of [-0.9, 0.9]) for (const dz of [-3.2, 3.2]) { const rg = new THREE.BoxGeometry(0.1, 1, 0.1); rg.translate(0, -0.5, 0); const rope = new THREE.Mesh(rg, dark); rope.position.set(dx, 0, dz); cable.add(rope); }
     const box = buildContainers([{ x: 0, y: -3.6, z: 0, kind: rand() < 0.5 ? 'maersk' : 'generic', color: pick(BOX_COLORS) }], spreader)[0];
     spreader.rotation.y = rot + Math.PI / 2; cable.rotation.y = rot;
     root.add(spreader); root.add(cable);
@@ -706,21 +823,53 @@ function buildSTS(B, root, x, zq, rot, state, shipTop = 35, num = 1) {
   }
 }
 
-// ---- Automated stacking crane spanning a yard block (rails along z at xL / xR)
-function buildASC(B, root, xL, xR, z) {
-  const H0 = QUAY_H, yT = H0 + 22, white = MAT.craneWhite, blue = MAT.craneBlue;
-  for (const x of [xL, xR]) {
-    for (const dz of [-3.6, 3.6]) { B.box(white, 1.2, yT - H0 - 3, 1.2, x, (H0 + 3 + yT) / 2, z + dz); B.box(MAT.hazard, 1.35, 2.6, 1.35, x, H0 + 1.9, z + dz); }
-    B.box(MAT.darkSteel, 1.6, 1.0, 9.4, x, H0 + 0.8, z);
-    B.box(white, 1.5, 1.6, 8.6, x, yT - 0.8, z);
+// ---- Automated stacking crane spanning a yard block (rails along z at xL / xR): two portals on wheeled sill beams, braced legs with stair
+// towers and power cabinets, box girders with walkways and handrails, a trolley with hoist machinery, four hoist ropes and a spreader that
+// sometimes carries a container (collected in `hang`, drawn with the real container textures)
+function buildASC(B, root, xL, xR, z, hang) {
+  const H0 = QUAY_H, yT = H0 + 22, white = MAT.craneWhite, blue = MAT.craneBlue, dark = MAT.darkSteel, yel = MAT.yellow, grey = MAT.grey;
+  const V = (a, b, c) => new THREE.Vector3(a, b, c), W = xR - xL, xm = (xL + xR) / 2;
+  [xL, xR].forEach((x, i) => {
+    const out = i ? 1 : -1;
+    for (const dz of [-3.6, 3.6]) {
+      B.box(white, 1.4, 12, 1.4, x, H0 + 9, z + dz);                                     // lower leg
+      B.box(white, 1.05, yT - H0 - 15, 1.05, x, (H0 + 15 + yT) / 2, z + dz);             // slimmer upper leg
+      B.box(white, 1.75, 0.35, 1.75, x, H0 + 15, z + dz);                                // splice plate
+      B.box(MAT.hazard, 1.55, 2.6, 1.55, x, H0 + 1.9, z + dz);
+    }
+    B.box(dark, 1.7, 1.0, 9.8, x, H0 + 0.8, z);                                           // sill beam on the rail…
+    for (const dz of [-3.9, -1.3, 1.3, 3.9]) B.cyl(dark, 0.5, 0.5, 0.42, x, H0 + 0.5, z + dz, 12, 0, 0, Math.PI / 2);     // …with four wheels
+    B.box(white, 0.9, 1.0, 7.2, x, H0 + 11, z);                                           // tie beam and X-bracing between the legs
+    B.beam(white, V(x, H0 + 3.4, z - 3.6), V(x, H0 + 11, z + 3.6), 0.4); B.beam(white, V(x, H0 + 3.4, z + 3.6), V(x, H0 + 11, z - 3.6), 0.4);
+    B.box(white, 1.5, 1.6, 8.6, x, yT - 0.8, z);                                          // portal head with corner gussets
+    for (const dz of [-3.6, 3.6]) B.beam(white, V(x, yT - 1.6, z + dz * 0.55), V(x, yT - 5.5, z + dz), 0.3);
+    if (i === 0) for (let k = 0; k < 4; k++) {                                            // stair tower up the outside of one portal
+      const y0 = H0 + 3 + k * 4.7, sg = k % 2 ? 1 : -1;
+      B.beam(yel, V(x - 1.1, y0, z - 2.6 * sg), V(x - 1.1, y0 + 4.7, z + 2.6 * sg), 0.8, 0.12);
+      B.box(MAT.steel, 1.4, 0.1, 1.5, x - 1.1, y0 + 4.7, z + 2.6 * sg);
+    }
+    for (const dz of [-2.4, 2.4]) B.box(grey, 1.0, 2.2, 1.5, x + out * 1.3, H0 + 1.1, z + dz);       // power cabinets
+    B.box(ENV.night ? MAT.lampOn : MAT.lampOff, 0.5, 0.2, 0.5, x, yT - 1.9, z + 4.5);    // work lights at the portal head
+  });
+  // box girders with walkways and handrails
+  for (const dz of [-3.6, 3.6]) {
+    const sg = Math.sign(dz), zo = z + dz + sg * 1.0;
+    B.box(white, W + 1.5, 2.0, 1.5, xm, yT + 0.2, z + dz);
+    B.box(MAT.steel, W + 1.5, 0.08, 1.0, xm, yT + 1.25, zo);
+    for (let x = xL - 0.5; x <= xR + 0.55; x += 3.7) B.box(yel, 0.05, 1.05, 0.05, x, yT + 1.8, zo + sg * 0.5);
+    B.box(yel, W + 1.5, 0.05, 0.05, xm, yT + 2.3, zo + sg * 0.5); B.box(yel, W + 1.5, 0.05, 0.05, xm, yT + 1.75, zo + sg * 0.5);
   }
-  for (const dz of [-3.6, 3.6]) B.box(white, xR - xL + 1.5, 2.0, 1.5, (xL + xR) / 2, yT + 0.2, z + dz);
-  B.box(blue, xR - xL + 1.52, 0.4, 1.52, (xL + xR) / 2, yT + 1.25, z - 3.6);
+  B.box(blue, W + 1.52, 0.4, 1.52, xm, yT + 1.25, z - 3.6);
+  // trolley with hoist machinery, four ropes, the spreader and sometimes a box
   const tx = lerp(xL + 4, xR - 4, rand());
-  B.box(blue, 5, 2.6, 8.8, tx, yT + 2.3, z); B.box(MAT.white, 2.4, 3, 3, xR + 2, H0 + 16, z + 2);
-  const drop = rr(6, 16);
-  B.box(MAT.darkSteel, 0.15, drop, 0.15, tx - 1, yT + 1 - drop / 2, z - 3); B.box(MAT.darkSteel, 0.15, drop, 0.15, tx + 1, yT + 1 - drop / 2, z + 3);
-  B.box(MAT.yellow, 2.6, 0.8, 12.4, tx, yT + 0.6 - drop, z);
+  B.box(blue, 5, 1.2, 8.8, tx, yT + 2.0, z);
+  B.box(white, 3.2, 1.8, 4.5, tx - 0.4, yT + 3.5, z - 1.0); B.box(grey, 1.6, 0.9, 1.6, tx + 1.2, yT + 3.2, z + 2.3);
+  B.box(dark, 1.8, 1.5, 1.6, tx + 1.4, yT + 1.1, z - 4.9);
+  const drop = rr(6, 16), sy = yT + 1.0 - drop;
+  for (const [dx, dz] of [[-1.0, -3.0], [1.0, -3.0], [-1.0, 3.0], [1.0, 3.0]]) B.box(dark, 0.1, drop, 0.1, tx + dx, yT + 1.0 - drop / 2, z + dz);
+  B.box(yel, 2.6, 0.8, 12.4, tx, sy, z);
+  for (const dx of [-1.1, 1.1]) for (const dz of [-5.9, 5.9]) B.box(dark, 0.5, 0.5, 0.5, tx + dx, sy - 0.55, z + dz);
+  if (hang && rand() < 0.5) hang.push({ x: tx, y: sy - 0.4 - 2.59, z, ry: 0, kind: rand() < 0.42 ? 'maersk' : 'generic', color: pick(BOX_COLORS) });
 }
 
 function lightMast(B, root, x, z) {

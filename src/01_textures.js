@@ -467,6 +467,77 @@ function pavedTexture(kind) {
   return out;
 }
 
+// The mainland as seen from the sea and from the quay: a patchwork of fields (greens, maize, hay, ploughed brown, the odd rapeseed yellow)
+// with hedgerows and their trees, farm tracks and a soft mottling, on a 512 m tile. Field corners sit on a jittered grid that wraps, so
+// the patchwork tiles without a seam. Colour only: the fine grain at close range comes from the weathering shader.
+function landTexture() {
+  const N = CFG.quality === 'low' ? 512 : 1024, G = 8, cell = N / G, R = mulberry32(61), c = makeCanvas(N, N), x = c.getContext('2d');
+  x.fillStyle = '#4d6a30'; x.fillRect(0, 0, N, N);
+  const jit = Array.from({ length: G * G }, () => [(R() - 0.5) * cell * 0.5, (R() - 0.5) * cell * 0.5]);
+  const vtx = (i, j) => { const q = jit[(((j % G) + G) % G) * G + (((i % G) + G) % G)]; return [i * cell + q[0], j * cell + q[1]]; };
+  const pal = [[[78, 108, 50], 22], [[92, 122, 58], 18], [[70, 98, 44], 14], [[104, 130, 62], 10], [[58, 84, 42], 12], [[152, 142, 82], 8], [[172, 154, 88], 5], [[114, 94, 68], 6], [[98, 82, 60], 3], [[204, 188, 72], 2]];
+  const total = pal.reduce((a, b) => a + b[1], 0), pick = () => { let r = R() * total; for (const [col, w] of pal) { if ((r -= w) < 0) return col; } return pal[0][0]; };
+  const each = (fn) => { for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) fn(ox * N, oy * N); };
+  for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) {
+    const col = pick(), v = [vtx(i, j), vtx(i + 1, j), vtx(i + 1, j + 1), vtx(i, j + 1)], ang = R() * Math.PI, brown = col[0] > 90 && col[2] < 72 && col[1] < 100;
+    each((dx, dy) => {
+      x.save(); x.beginPath(); v.forEach(([px, py], k) => (k ? x.lineTo(px + dx, py + dy) : x.moveTo(px + dx, py + dy))); x.closePath();
+      x.fillStyle = `rgb(${col[0] + ((R() - 0.5) * 8) | 0},${col[1]},${col[2]})`; x.fill(); x.clip();
+      // crop rows / furrows
+      x.strokeStyle = brown ? 'rgba(40,28,16,0.13)' : 'rgba(20,34,12,0.055)'; x.lineWidth = 1;
+      const cx = (v[0][0] + v[2][0]) / 2 + dx, cy = (v[0][1] + v[2][1]) / 2 + dy, ux = Math.cos(ang), uy = Math.sin(ang);
+      for (let t = -cell; t < cell; t += 3) { x.beginPath(); x.moveTo(cx - uy * t - ux * cell, cy + ux * t - uy * cell); x.lineTo(cx - uy * t + ux * cell, cy + ux * t + uy * cell); x.stroke(); }
+      x.restore();
+    });
+  }
+  // hedgerows (and their trees) along most field edges, farm tracks along a few
+  for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) for (const [a, b] of [[vtx(i, j), vtx(i + 1, j)], [vtx(i, j), vtx(i, j + 1)]]) {
+    const u = R();
+    if (u < 0.62) {
+      each((dx, dy) => {
+        x.strokeStyle = 'rgba(34,54,26,0.85)'; x.lineWidth = 3; x.beginPath(); x.moveTo(a[0] + dx, a[1] + dy); x.lineTo(b[0] + dx, b[1] + dy); x.stroke();
+        const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        for (let t = 6; t < len; t += 9 + R() * 8) { const px = a[0] + (b[0] - a[0]) * t / len + dx, py = a[1] + (b[1] - a[1]) * t / len + dy; x.fillStyle = `rgba(${28 + (R() * 16) | 0},${52 + (R() * 22) | 0},${24},0.9)`; x.beginPath(); x.arc(px, py, 2.5 + R() * 3, 0, 6.3); x.fill(); }
+      });
+    } else if (u < 0.74) each((dx, dy) => { x.strokeStyle = 'rgba(150,132,100,0.8)'; x.lineWidth = 2; x.beginPath(); x.moveTo(a[0] + dx, a[1] + dy); x.lineTo(b[0] + dx, b[1] + dy); x.stroke(); });
+  }
+  // soft mottling
+  for (let i = 0; i < 160; i++) { const r = 30 + R() * 90, cx = R() * N, cy = R() * N, l = R() < 0.5 ? 20 : 235; for (let q = 0; q < 3; q++) wrapBlob(x, cx, cy, r * (1 - q * 0.3), N, N, `rgba(${l},${l},${l},0.018)`); }
+  return canvasTexture(c, { aniso: 8 });
+}
+
+// Oil-tank shell: courses of welded plates – a tile is one plate wide (8 m) and three courses high (7.2 m), the vertical welds staggered by
+// half a plate from one course to the next. Plate-to-plate tone, weld seams in colour and height (→ normal map), rust streaks running
+// down from the welds. UVs are laid out in tile units by the caller (tankGeo).
+function tankTexture() {
+  const low = CFG.quality === 'low', W = low ? 256 : 512, H = W, R = mulberry32(88), k = W / 512;
+  const c = makeCanvas(W, H), x = c.getContext('2d'), hc = makeCanvas(W, H), hx = hc.getContext('2d');
+  x.fillStyle = '#d5d6d0'; x.fillRect(0, 0, W, H); hx.fillStyle = 'rgb(128,128,128)'; hx.fillRect(0, 0, W, H);
+  const ch = H / 3;
+  for (let j = 0; j < 3; j++) {
+    const off = (j % 2) * W / 2;
+    for (let i = -1; i <= 1; i++) {                                              // two plates per course in the tile's width: the second wraps
+      const X = off + i * W, tone = (R() - 0.5) * 22;
+      x.fillStyle = `rgba(${tone > 0 ? 255 : 30},${tone > 0 ? 250 : 34},${tone > 0 ? 240 : 40},${Math.abs(tone) / 255 * 1.6})`; x.fillRect(X, j * ch, W, ch);
+    }
+    // vertical weld at the course's offset, horizontal weld at its top edge
+    for (const wx of [off, off + W]) {
+      x.fillStyle = 'rgba(70,72,70,0.55)'; x.fillRect(wx - 1.5 * k, j * ch, 3 * k, ch); hx.fillStyle = 'rgba(210,210,210,0.9)'; hx.fillRect(wx - 2 * k, j * ch, 4 * k, ch);
+      x.fillStyle = 'rgba(70,72,70,0.55)'; x.fillRect(wx - 1.5 * k - W, j * ch, 3 * k, ch); hx.fillRect(wx - 2 * k - W, j * ch, 4 * k, ch);
+    }
+    x.fillStyle = 'rgba(60,62,60,0.7)'; x.fillRect(0, j * ch - 1.5 * k, W, 3 * k); hx.fillStyle = 'rgba(225,225,225,0.95)'; hx.fillRect(0, j * ch - 2.2 * k, W, 4.4 * k);
+    x.fillStyle = 'rgba(255,255,255,0.14)'; x.fillRect(0, j * ch + 2 * k, W, 2 * k);
+    // rust and run-off streaks below the horizontal weld
+    for (let n = 0; n < 26; n++) {
+      const sx = R() * W, len = (30 + R() * 110) * k, a = 0.05 + R() * 0.1, w = (1 + R() * 3) * k, g = x.createLinearGradient(0, j * ch, 0, j * ch + len);
+      g.addColorStop(0, `rgba(96,64,44,${a})`); g.addColorStop(1, 'rgba(96,64,44,0)');
+      x.fillStyle = g; x.fillRect(sx, j * ch, w, len);
+    }
+  }
+  for (let n = 0; n < 150; n++) { const sx = R() * W, y0 = R() * H, len = (40 + R() * 160) * k; const g = x.createLinearGradient(0, y0, 0, y0 + len); g.addColorStop(0, 'rgba(60,56,50,0)'); g.addColorStop(0.3, `rgba(60,56,50,${0.03 + R() * 0.05})`); g.addColorStop(1, 'rgba(60,56,50,0)'); x.fillStyle = g; x.fillRect(sx, y0, (1 + R() * 2) * k, len); }
+  return { map: canvasTexture(c, { aniso: 8, repeat: [1, 1] }), normal: low ? null : heightToNormalTexture(hc, 2.4, { aniso: 8 }) };
+}
+
 // Rock armour of the breakwaters and the open coast (28 m tile): piled stones of a metre or two – lit on their tops, dark in the gaps
 // between – with a normal map made from the same stones. Drawn as many overlapping gradient-shaded ellipses, wrapped round the tile.
 function rockTexture() {

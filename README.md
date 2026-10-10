@@ -64,7 +64,8 @@ The picture is built for plausibility rather than looks alone: everything is lit
 - **Culling** (`02e_lod.js`): the scene is ~2 200 draw calls a frame (sun shadow, mirrored view of the sea, main view), and on a high-DPI screen
   that, not the pixels, is the cost. Every mesh is put on a layer by how large it appears – drawn and mirrored, drawn but not mirrored (too
   small to register in the rippled reflection), or not drawn (under ¾ of a pixel) – with thresholds that follow the field of view, so
-  binoculars bring the small things back. Draw calls roughly halve; an A/B on a frozen frame changes 0.03 % of the pixels.
+  binoculars bring the small things back. A mesh can also carry `userData.farCull` – a distance beyond which it is not drawn at all (the yard gantries' fine
+  structure, the detailed tree crowns). Draw calls roughly halve; an A/B on a frozen frame changes 0.03 % of the pixels.
 - **Sky** (`02a_atmos.js`): a Preetham clear sky is baked into cube maps for lighting and reflections; clouds are raymarched live through a
   96³ GPU noise volume (cumulus layer with self-shadowing, plus cirrus) into a half-resolution target, and the dome composites them with a real sun
   disc, moon with maria, stars and Milky Way drawn crisp at full resolution. A CPU copy of the same volume tells the game how much of the sun
@@ -82,6 +83,9 @@ The picture is built for plausibility rather than looks alone: everything is lit
   sideways displacement by the hull is mapped, not advected, so streaks slide out round the bow and along the hull without smearing. The bow
   region of the own ship has its own fine mesh, so the crest has a real body from close up. Turquoise bubble clouds, turbulent normals; the
   white water is lit by sky and sun/moon. The bow wave swells as the bow digs into a wave and shrinks as it lifts. `?swdebug` paints the fields.
+- **Land and structures**: the mainland is a patchwork of fields with hedgerows and tracks (`landTexture`); trees are lumpy multi-lobe broadleaf, poplar
+  and conifer crowns with per-tree tint, height and lean (cheaper crowns beyond the terminal); the yard gantries and quay cranes carry stiffener ribs, rails,
+  handrails, louvres and stair towers, and the gantries hang containers from their spreaders.
 - **Materials**: object-space weathering (stains, rain streaks, roughness variation) is injected into every standard material; containers,
   hull plating and deckhouse facades carry normal and roughness/metalness maps generated in `01_textures.js`; so do the apron concrete, the
   asphalt and the quay wall (slabs with their own tone, cracks, oil, truck lanes – colour, height and roughness drawn together so they agree);

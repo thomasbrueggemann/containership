@@ -57,6 +57,11 @@ const PRESETS = {
   bowD: `freecamShip(14, 95, -186, 5, -200)`,
   bowE: `freecamShip(-60, 20, -150, 0, -222)`,
   sternTop: `freecamShip(60, 50, 280, 0, 196)`,
+  aftDeck: `freecamShip(12, 28, 232, 0, 186)`,
+  aftDeck2: `freecamShip(30, 16, 215, -6, 190)`,
+  foreDeck: `freecamShip(14, 26, -150, 0, -186)`,
+  foreDeck2: `freecamShip(26, 14, -165, 0, -190)`,
+  deckMid: `freecamShip(10, 24, 130, 0, 100)`,
   wakeA: `freecamShip(40, 60, 330, 0, 480)`,
   wakeB: `freecamShip(120, 220, 360, 0, 700)`,
   wakeC: `freecamShip(10, 25, 260, 0, 330)`,
@@ -80,6 +85,21 @@ const PRESETS = {
   yardLow: `freecam(-300, 8, -740, -300, 6, -1100)`,
   yardHigh: `freecam(-200, 60, -760, -150, 12, -1300)`,
   groundClose: `freecam(-300, 6.6, -800, -300, 4.85, -835)`,
+  // the terminal's yard gantries and the trees behind it at working distances
+  gantryA: `freecam(-262, 16, -790, -250, 14, -905)`,
+  // alongside: needs SHOT_JS="shipAtBerth(); true"
+  atWingFwd: `inBridge(-27.2, -2.3, 0.5, -0.3)`,
+  atWingAft: `inBridge(-27.2, -2.3, 2.4, -0.3)`,
+  atWingDown: `inBridge(-27.2, -2.3, 1.1, -0.9)`,
+  atBridge: `inBridge(-0.4, -1.6, -0.9, -0.05)`,
+  atOrbit: `orbit(-1.2, 0.2, 260)`,
+  stsA: `freecam(-560, 30, -640, -600, 45, -720)`,
+  stsB: `freecam(-640, 12, -655, -690, 40, -735)`,
+  stsC: `freecam(-690, 60, -600, -690, 62, -740)`,
+  gantryB: `freecam(-330, 40, -770, -250, 16, -930)`,
+  gantryC: `freecam(-198, 9, -835, -230, 18, -905)`,
+  treesA: `freecam(300, 14, -1700, 330, 14, -1795)`,
+  treesB: `freecam(2560, 16, -300, 2640, 12, -420)`,
   // the first tug / the pilot boat / the first traffic ship, from 45 m / 30 m / 160 m away at a three-quarter angle
   tug: `freecam(__dbg.TUGS.list[0].x + 38, 14, __dbg.TUGS.list[0].z + 30, __dbg.TUGS.list[0].x, 4, __dbg.TUGS.list[0].z)`,
   tugHi: `freecam(__dbg.TUGS.list[0].x + 22, 7, __dbg.TUGS.list[0].z + 18, __dbg.TUGS.list[0].x, 4, __dbg.TUGS.list[0].z)`,
@@ -101,6 +121,11 @@ const PRESETS = {
   trees: `freecam(2500, 12, -500, 2640, 12, -900)`,
   citySkyline: `freecam(1800, 25, -200, 5000, 45, -3000)`,
   tanks: `freecam(-300, 20, 1000, -150, 20, 1700)`,
+  tankFarm: `freecam(-700, 12, 1450, -860, 14, 1700)`,
+  tankClose: `freecam(-900, 9, 1560, -950, 14, 1650)`,
+  chimney: `freecam(450, 25, 1900, 650, 70, 2100)`,
+  turbine: `freecam(-2100, 14, 560, -2110, 60, 731)`,
+  turbineFar: `freecam(-2400, 12, 120, -2110, 60, 731)`,
   entrance: `freecam(-3700, 28, 30, -1500, 30, -200)`,
   breakwater: `freecam(-3100, 14, -300, -2500, 12, -560)`,
   breakClose: `freecam(-2830, 14, -330, -2650, 4, -430)`,
@@ -154,6 +179,8 @@ const HELPERS = `
     P.update = function () { g.updateMatrixWorld(); const a = new (c.position.constructor)(cx, cy, cz).applyMatrix4(g.matrixWorld), b = new (c.position.constructor)(tx, 1, tz).applyMatrix4(g.matrixWorld); c.position.copy(a); c.lookAt(b); if (c.fov !== 55) { c.fov = 55; c.updateProjectionMatrix(); } }; };
   window.freecamPatrol = (d, h, ang) => { const P = __dbg.PLAYER; if (__dbg.G.mode !== 'orbit') P.toggleOrbit(); P.update = P.__upd || (P.__upd = P.update); const c = __dbg.camera;
     P.update = function () { const o = window.__pb; const a = o.psi + ang * Math.PI / 180 + Math.PI; c.position.set(o.x + Math.sin(a) * d, h, o.z - Math.cos(a) * d); c.lookAt(o.x + Math.sin(o.psi) * 5, 1, o.z - Math.cos(o.psi) * 5); if (c.fov !== 50) { c.fov = 50; c.updateProjectionMatrix(); } }; };
+  // the own ship alongside Berth 4, port side to the quay (as scored: stopped, in the middle of the berth)
+  window.shipAtBerth = () => { const s = __dbg.G.ship; s.x = 300; s.z = -668.5; s.psi = Math.PI / 2; s.u = s.v = s.r = 0; s.rpm = [0, 0]; __dbg.frame(6, 1 / 30); return true; };
   window.pilotAlongside = () => { const s = __dbg.G.ship, P = __dbg.PILOTBOAT, side = __dbg.G.flags.leeSide === 'STBD' ? 1 : -1; const [x, z] = s.toWorld(-10, side * 33.3); P.x = x; P.z = z; P.psi = s.psi; P.state = 'alongside'; P.alongT = 0; P.grp.position.set(x, 0.2, z); P.grp.rotation.set(0, -s.psi, 0); P.grp.updateMatrixWorld(true); return side; };
   window.vessel = (name, k) => { const o = __dbg.TRAFFIC.ships.find((t) => t.name === name); window.freecam(o.x + o.L * k * 0.7, Math.max(6, o.L * 0.5), o.z + o.L * k * 0.7, o.x, 3, o.z); const P = __dbg.PLAYER, c = __dbg.camera; P.update = function () { c.position.set(o.x + o.L * k * 0.7, Math.max(6, o.L * 0.5), o.z + o.L * k * 0.7); c.lookAt(o.x, 3, o.z); }; };
   window.restoreCam = () => { const P = __dbg.PLAYER; if (P.__upd) { P.update = P.__upd; } __dbg.camera.fov = 68; __dbg.camera.updateProjectionMatrix(); };
