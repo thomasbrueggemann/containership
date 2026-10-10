@@ -250,6 +250,9 @@ function buildOcean() {
         vec3 sw = swell(p, length(cameraPosition.xz - p), uTime, vec2(10.0, 35.0));
         vec2 slope = vec2(0.0); float h = 0.0, hsq = 0.0, lost = 0.0, comp = 0.0;
         float wl = 170.0;
+        // a few dozen sine waves interfere into a regular lattice; a slow, patchy phase drift (different for every component) makes the pattern irregular
+        // at the scale of tens of metres, as the sea is (the geometry keeps its own, exactly matching, swell)
+        float pdr = vn(p / 63.0 + 17.3) - 0.5;
         for (int i = 0; i < 34; i++) {
           float fi = float(i);
           float spread = 0.55 + fi * 0.035;
@@ -259,7 +262,7 @@ function buildOcean() {
           float w = sqrt(9.81 * k);
           float A = wl * 0.0088 * uSea * (i < 5 ? 0.85 : patchy);
           float fade = clamp((wl - 2.2 * pix) / (2.2 * pix), 0.0, 1.0);
-          float ph = k * dot(dir, p) - w * uTime + h1(fi * 7.7) * 6.2831853;
+          float ph = k * dot(dir, p) - w * uTime + h1(fi * 7.7) * 6.2831853 + pdr * (0.5 + 0.32 * fi) * (h1(fi * 1.9 + 4.0) - 0.3);
           slope += dir * (k * A * cos(ph) * fade);
           comp += k * A * sin(ph) * fade;                 // horizontal convergence: positive on the crests
           float hs = A * sin(ph) * fade;
