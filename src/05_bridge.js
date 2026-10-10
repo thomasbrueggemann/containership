@@ -528,8 +528,10 @@ function buildBridge(shipGroup) {
 
   // interior lights
   if (ENV.night) {
-    for (const x of [-18, -6, 6, 18]) { const l = new THREE.PointLight(0xff5533, 0.9, 11, 2); l.position.set(x, H - 0.3, 0); bg.add(l); }
-    const cl = new THREE.PointLight(0x9ab8ff, 0.5, 6, 2); cl.position.set(0, 1.4, -3.4); bg.add(cl);
+    // low-level red lighting (what keeps the watch's night vision), strong enough to see the consoles, the floor and the people by: at the old
+    // 0.9 candela the whole room below the windows was black
+    for (const x of [-27.5, -18, -6, 6, 18, 27.5]) { const l = new THREE.PointLight(0xff6a44, 3.4, 16, 1.6); l.position.set(x, H - 0.3, 0); bg.add(l); }
+    const cl = new THREE.PointLight(0x9ab8ff, 1.3, 8, 1.8); cl.position.set(0, 1.4, -3.4); bg.add(cl);
   } else {
     const fill = new THREE.PointLight(0xfff4e8, 7.0, 24, 1.5); fill.position.set(0, H - 0.4, 0); bg.add(fill);
     for (const x of [-18, 18]) { const f2 = new THREE.PointLight(0xfff4e8, 4.2, 18, 1.5); f2.position.set(x, H - 0.4, 0); bg.add(f2); }
