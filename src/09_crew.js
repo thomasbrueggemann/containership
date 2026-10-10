@@ -1,109 +1,7 @@
 // ============================================================================
 // 09 — CREW: humanoid models, animation, pathing, speech, delegated orders
 // ============================================================================
-// Lofts superelliptic rings [y, halfWidth, halfDepth, zOffset] into a smooth closed body shell.
-function loftGeometry(rings, capBottom = false, capTop = true, seg = 24) {
-  const pos = [], idx = [], n = 2.6;
-  for (const [y, w, d, z0 = 0] of rings) for (let k = 0; k < seg; k++) {
-    const a = k / seg * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
-    pos.push(Math.sign(c) * Math.abs(c) ** (2 / n) * w, y, z0 + Math.sign(sn) * Math.abs(sn) ** (2 / n) * d);
-  }
-  for (let r = 0; r < rings.length - 1; r++) for (let k = 0; k < seg; k++) {
-    const a = r * seg + k, b = r * seg + (k + 1) % seg, c = a + seg, e = b + seg;
-    idx.push(a, c, b, b, c, e);
-  }
-  const cap = (r, up) => { const ci = pos.length / 3, [y, , , z0 = 0] = rings[r]; pos.push(0, y + (up ? 0.004 : -0.004), z0); for (let k = 0; k < seg; k++) { const a = r * seg + k, b = r * seg + (k + 1) % seg; up ? idx.push(ci, b, a) : idx.push(ci, a, b); } };
-  if (capTop) cap(rings.length - 1, true);
-  if (capBottom) cap(0, false);
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
-  return g;
-}
-
-function buildHuman(o) {
-  const mat = (c, r = 0.75) => new THREE.MeshStandardMaterial({ color: c, roughness: r, envMapIntensity: 0.4 });
-  const skin = mat(o.skin || 0xc99a78, 0.6), shirt = mat(o.shirt || 0xf2f2ef, 0.85), pants = mat(o.pants || 0x1c2230, 0.85), shoe = mat(0x111111, 0.5), hairM = mat(o.hair || 0x241a12, 0.9);
-  const root = new THREE.Group();
-  const hips = new THREE.Group(); hips.position.y = 0.94; root.add(hips);
-  const torso = new THREE.Group(); hips.add(torso);
-  // contoured torso: superelliptic cross-sections lofted from waist to neck (front is -z)
-  const F = o.female ? 1 : 0;
-  // body proportions relative to the head: shoulder breadth ≈ 3 head widths (men), a little less for women
-  const W = o.female ? 0.84 : 0.86, D = o.female ? 0.9 : 0.96, AR = o.female ? 0.8 : 0.86, LG = o.female ? 0.86 : 0.92;
-  // scale a loft ring [y, halfWidth, halfDepth, z]; rings at the collar keep their size so the neck still fits
-  const ring = ([y, w, d, z = 0]) => { const t = smooth(0.52, 0.6, y), k = lerp(W, 1, t), kd = lerp(D, 1, t); return [y, w * k, d * kd, z * kd]; };
-  const shirtProfile = [[0.075, 0.163 + F * 0.01, 0.113],   // hem tucked in under the belt
-    [0.16, 0.158 - F * 0.02, 0.112], [0.3, 0.176 - F * 0.02, 0.12, -0.006], [0.41, 0.196 - F * 0.02, 0.124, -0.01],
-    [0.49, 0.212 - F * 0.02, 0.114, -0.004], [0.535, 0.205 - F * 0.02, 0.1], [0.565, 0.16 - F * 0.015, 0.084], [0.59, 0.095, 0.066], [0.605, 0.066, 0.056]].map(ring);
-  const chest = new THREE.Mesh(loftGeometry(shirtProfile), o.coverall ? pants : shirt); torso.add(chest);
-  // trouser seat: waistband (outside the shirt hem) down to the crotch, never wider or deeper than the
-  // legs' silhouette except a little fullness at the back – no pouch hanging between the legs
-  const belly = new THREE.Mesh(loftGeometry([[-0.175, 0.04, 0.045, 0.01], [-0.15, 0.13, 0.082, 0.012], [-0.1, 0.16 + F * 0.012, 0.098, 0.012], [-0.02, 0.169 + F * 0.015, 0.108, 0.006], [0.03, 0.172 + F * 0.012, 0.115], [0.1, 0.172 + F * 0.01, 0.117]].map(ring), true), pants); torso.add(belly);
-  if (!o.coverall) { const belt = new THREE.Mesh(loftGeometry([[0.065, 0.177 + F * 0.012, 0.122], [0.1, 0.176 + F * 0.012, 0.122]].map(ring), false, false), mat(0x111111, 0.4)); torso.add(belt); }
-  if (o.vest) { const v = new THREE.Mesh(loftGeometry(shirtProfile.slice(1, 7).map(([y, w, d, z = 0]) => [y, w + 0.018, d + 0.02, z]), false, false), mat(o.vest, 0.6)); v.material.side = THREE.DoubleSide; torso.add(v); }
-  if (o.epaulettes) for (const sx of [-1, 1]) { const e = new THREE.Group(); e.position.set(sx * 0.155 * W, 0.563, 0); e.rotation.z = -sx * 0.42; torso.add(e); e.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.01, 0.11), mat(0x1a2233, 0.5))); for (let k = 0; k < o.epaulettes; k++) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.101, 0.012, 0.012), mat(0xd4a93a, 0.3)); st.position.set(0, 0.002, -0.03 + k * 0.022); e.add(st); } }
-  if (o.radio) { const r = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.035), mat(0x111111)); r.position.set(0.12 * W, 0.44, -0.13 * D); torso.add(r); }
-  // neck pivot at the base of the neck so nodding/turning keeps the neck seated in the collar
-  const head = new THREE.Group(); head.position.y = 0.6; torso.add(head);
-  const hc = new THREE.Group(); hc.position.y = 0.16; head.add(hc);
-  let eyes = null;
-  if (HEADS.ready && !o.procedural) {
-    const hb = o.female && HEADS.femaleReady ? HEADS.buildFemale(o) : HEADS.build(o);
-    hc.add(hb.group); eyes = hb.eyes;
-    skin.color.copy(hb.skin).multiplyScalar(0.92);
-    if (o.glasses) { const gm = mat(0x151515, 0.3); for (const sx of [-1, 1]) { const l = new THREE.Mesh(new THREE.TorusGeometry(0.021, 0.0028, 6, 18), gm); l.position.set(sx * 0.034, -0.062, -0.103); hc.add(l); const arm = new THREE.Mesh(new THREE.BoxGeometry(0.003, 0.003, 0.1), gm); arm.position.set(sx * 0.058, -0.058, -0.055); hc.add(arm); } const br = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.003, 0.003), gm); br.position.set(0, -0.058, -0.106); hc.add(br); }
-    if (!o.coverall) {
-      // open shirt collar around the neck
-      const col = mat(o.shirt || 0xf2f2ef, 0.85);
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.068, 0.014, 8, 24, Math.PI * 1.45), col); band.rotation.x = Math.PI / 2; band.rotation.z = Math.PI * 0.275 + Math.PI / 2; band.position.set(0, 0.585, 0.005); torso.add(band);
-    } else { const c2 = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.08, 0.05, 16, 1, true), pants); c2.position.y = 0.6; torso.add(c2); }
-  } else {
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.1, 10), skin); neck.position.y = 0.63; torso.add(neck);
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.108, 20, 16), skin); skull.scale.set(0.92, 1.12, 1.0); hc.add(skull);
-  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.085, 16, 10), skin); jaw.position.set(0, -0.055, -0.02); jaw.scale.set(0.95, 0.8, 1); hc.add(jaw);
-  for (const sx of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), mat(0x1a1410, 0.3)); eye.position.set(sx * 0.037, 0.018, -0.095); hc.add(eye);
-    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.008, 0.01), hairM); brow.position.set(sx * 0.037, 0.045, -0.1); hc.add(brow);
-    const ear = new THREE.Mesh(new THREE.SphereGeometry(0.024, 8, 6), skin); ear.position.set(sx * 0.1, 0.0, 0.0); ear.scale.set(0.5, 1, 0.8); hc.add(ear);
-  }
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.05, 8), skin); nose.rotation.x = -Math.PI / 2 - 0.3; nose.position.set(0, -0.005, -0.112); hc.add(nose);
-  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.006, 0.01), mat(0x6a3a30)); mouth.position.set(0, -0.052, -0.098); hc.add(mouth);
-  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.114, 18, 12, 0, Math.PI * 2, 0, Math.PI * (o.female ? 0.62 : 0.5)), hairM); hair.position.y = 0.012; hair.scale.set(0.95, 1.12, 1.03); hair.rotation.x = 0.25; hc.add(hair);
-  if (o.female) { const bun = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), hairM); bun.position.set(0, 0.03, 0.11); hc.add(bun); }
-  if (o.beard) { const b = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.55), hairM); b.position.set(0, -0.04, -0.03); hc.add(b); }
-  if (o.glasses) { const gm = mat(0x111111, 0.3); for (const sx of [-1, 1]) { const l = new THREE.Mesh(new THREE.TorusGeometry(0.02, 0.004, 6, 14), gm); l.position.set(sx * 0.037, 0.018, -0.105); hc.add(l); } }
-  }
-  if (o.hat === 'helmet') { const h = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), mat(o.helmetCol || 0xffffff, 0.4)); h.position.y = 0.03; hc.add(h); const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.01, 16), mat(o.helmetCol || 0xffffff, 0.4)); brim.position.set(0, 0.03, -0.02); hc.add(brim); }
-  if (o.hat === 'cap') { const h = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.115, 0.07, 16), mat(0x1a2233, 0.7)); h.position.y = 0.09; hc.add(h); const v = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.01, 0.08), mat(0x111111, 0.4)); v.position.set(0, 0.06, -0.12); hc.add(v); }
-  // tapered limb: sphere joint, conical segment, sphere joint (hangs down from the pivot)
-  const limb = (r0, r1, len, m) => {
-    const off = (r0 + r1) / 2 * 0.3;
-    const g = mergeGeometries([new THREE.SphereGeometry(r0, 12, 8).translate(0, -off, 0), new THREE.CylinderGeometry(r0, r1, len, 12, 1, true).translate(0, -len / 2 - off, 0), new THREE.SphereGeometry(r1, 12, 8).translate(0, -len - off, 0)].map((q) => { q.deleteAttribute('uv'); return q; }));
-    return new THREE.Mesh(g, m);
-  };
-  const arms = [], legs = [], legTape = [];
-  if (o.coverall) torso.add(new THREE.Mesh(loftGeometry([[0.4, 0.2, 0.128, -0.01], [0.445, 0.207, 0.123, -0.008]].map(ring), false, false), mat(0xd8dcd8, 0.35)));
-  for (const sx of [-1, 1]) {
-    const sh = new THREE.Group(); sh.position.set(sx * (o.female ? 0.195 : 0.215) * W, 0.52, 0); torso.add(sh);
-    const ua = limb(0.058 * AR, 0.047 * AR, 0.24, o.coverall ? pants : shirt); sh.add(ua);
-    const delt = new THREE.Mesh(new THREE.SphereGeometry(0.056 * AR, 14, 10), o.coverall ? pants : shirt); delt.scale.set(0.95, 0.9, 1.1); delt.position.set(-sx * 0.012 * AR, -0.045, 0); sh.add(delt);
-    const el = new THREE.Group(); el.position.y = -0.3; sh.add(el);
-    const fa = limb(0.047 * AR, 0.035 * AR, 0.22, o.shortSleeve ? skin : (o.coverall ? pants : shirt)); el.add(fa);
-    const hand = new THREE.Mesh(new RoundedBoxGeometry(0.036, 0.1, 0.075, 2, 0.016), o.gloves ? mat(0xe8e0c0) : skin); hand.position.y = -0.3; hand.scale.setScalar(o.female ? 0.9 : 1); el.add(hand);
-    if (o.coverall) { const tape = mat(0xd8dcd8, 0.35); for (const [g, y, r] of [[el, -0.17, 0.043 * AR], [null, -0.3, 0.059 * LG]]) { const t = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.035, 14, 1, true), tape); t.position.y = y; (g || (legTape.push(t), el)).add(t); } }
-    sh.rotation.z = sx * 0.08;
-    arms.push({ sh, el });
-    const hp = new THREE.Group(); hp.position.set(sx * 0.1 * LG, 0.0, 0); hips.add(hp);
-    const th = limb(0.094 * LG, 0.062 * LG, 0.36, pants); hp.add(th);   // trouser leg, a little loose
-    const kn = new THREE.Group(); kn.position.y = -0.45; hp.add(kn);
-    const sn = limb(0.062 * LG, 0.05 * LG, 0.36, pants); kn.add(sn);
-    if (o.coverall) { const t = legTape.pop(); t.position.y = -0.24; kn.add(t); }
-    const ft = new THREE.Mesh(new RoundedBoxGeometry(0.1, 0.07, 0.25, 2, 0.03), shoe); ft.position.set(0, -0.46, -0.05); kn.add(ft);
-    legs.push({ hp, kn });
-  }
-  if (o.female) root.scale.setScalar(0.95);   // ~1.68 m instead of ~1.77 m
-  root.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
-  return { root, hips, torso, head, arms, legs, chest, eyes };
-}
+// (the bodies are built in 09b_body.js: buildHuman(look) returns the rig this file animates)
 
 // ------------------------------------------------------------- speech
 // Neural voices: Kokoro-82M (Apache-2.0) runs in a Web Worker on WebGPU (or threaded WASM if cross-origin isolated).
@@ -319,6 +217,7 @@ const SPOTS = {
   aft: { node: 'aftC', face: 0.3, pose: null },
 };
 
+const _ikS = { M: new THREE.Matrix4(), Mi: new THREE.Matrix4(), Mh: new THREE.Matrix4(), T: new THREE.Vector3(), S: new THREE.Vector3(), pole: new THREE.Vector3(), q: new THREE.Quaternion(), q2: new THREE.Quaternion() };
 class CrewMember {
   constructor(id, look, node) {
     this.id = id; this.look = look;
@@ -327,15 +226,19 @@ class CrewMember {
     this.group = h.root;
     const [x, z] = BR.nodes[node]; this.x = x; this.z = z; this.node = node;
     this.face = 0; this.targetFace = 0; this.path = []; this.state = 'idle';
-    this.walkPh = Math.random() * 6; this.talkT = 0; this.present = true; this.idleT = Math.random() * 10;
+    const seed = look.seed || 7; this.rng = mulberry32(seed * 977 + 13);
+    this.gait = new HumGait(h, look, seed); this.speed = 0; this.vPref = 1.35 * ((look.gait && look.gait.speed) || 1);
+    this.aj = [0, 1].map(() => ({ sx: 0, sy: 0, sz: 0, el: 0.14, pr: 0 })); this.at = [0, 1].map(() => ({ sx: 0, sy: 0, sz: 0, el: 0.14, pr: 0 }));
+    this.gz = { yaw: 0, nod: 0, tYaw: 0, tNod: 0, t: 1 + this.rng() * 3, torsoYaw: 0 }; this.breathPh = this.rng() * 6.28;
+    this.ikC = [0, 1].map(() => ({ on: false, space: 'root', x: 0, y: 0, z: 0, pole: [0, -1, 0], pr: 0, wx: 0 })); this.ikS = [0, 1].map(() => ({ w: 0, init: false, p: new THREE.Vector3() }));
+    this.talkT = 0; this.present = true; this.idleT = this.rng() * 10;
     this.task = null; this.ambientT = 25 + Math.random() * 40;
     this.seat = null; this.sitK = 0; this.waitT = 0; this.ghostT = 0;
     this.group.position.set(x, 0, z);
     G.bridgeGroup.add(this.group);
-    // handset / walkie-talkie shown in the right hand while on the radio or phone
-    this.handset = new THREE.Mesh(new THREE.CapsuleGeometry(0.022, 0.12, 4, 8), new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.5 }));
-    this.handset.position.set(0.0, -0.3, -0.03); this.handset.rotation.x = 0.3; this.handset.visible = false;
-    this.arms[1].el.add(this.handset);
+    // handset at the right ear while on the radio or phone, binoculars at the eyes (both ride on the head; the hands are solved to them)
+    this.handset = humHandset(); this.handset.visible = false; this.hc.add(this.handset);
+    this.binoMesh = humBinoculars(); this.binoMesh.visible = false; this.hc.add(this.binoMesh);
     // interaction proxy (capsule)
     const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.8, 8), new THREE.MeshBasicMaterial({ visible: false }));
     hit.position.y = 0.9; this.group.add(hit);
@@ -424,25 +327,45 @@ class CrewMember {
     return false;
   }
   talk(sec) { this.talkT = sec; }
+  // preferred walking speed: the C/O strolls, the helmsman is brisk; faster when the game clock runs fast, but never into a run
+  walkSpeed() { return Math.min(2.15, this.vPref * Math.min(1.7, Math.max(1, G.timeScale * 0.6))); }
+  // forget everything about where the feet were (after a teleport or a restore)
+  resetPose() { this.gait.init = false; this.speed = 0; }
   update(dt) {
     if (!this.present) return;
-    const rdt = dt;
+    const rdt = dt, gt = this.gait;
     let moving = false;
     // sitting down / getting up takes a moment; walking only starts once standing
-    this.sitK = clamp(this.sitK + (this.seat ? 1 : -1) * rdt * 2.2, 0, 1);
+    this.sitK = clamp(this.sitK + (this.seat ? 1 : -1) * rdt * 1.3, 0, 1);
     if (this.ghostT > 0) this.ghostT -= rdt;
+    const px0 = this.x, pz0 = this.z;
     if (this.path.length && this.sitK < 0.05) {
-      const [tx, tz] = this.path[0];
-      const dx = tx - this.x, dz = tz - this.z, d = Math.hypot(dx, dz);
-      const sp = 1.35 * Math.min(3, Math.max(1, G.timeScale * 0.6));
-      // someone is standing on the spot: stop next to them (last waypoint) or cut the corner (on the way)
-      const onSpot = d < (this.path.length === 1 ? 1.0 : 0.9) && CREW.others(this).some((o) => Math.hypot(o.x - tx, o.z - tz) < 0.5);
-      if (d < 0.08 || onSpot) { this.path.shift(); this.waitT = 0; if (!this.path.length) { this.state = 'idle'; const cb = this.onArrive; this.onArrive = null; cb && cb(); } }
-      else {
-        const ox = this.x, oz = this.z;
-        if (this.step(dx / d, dz / d, Math.min(d, sp * rdt), rdt)) { this.targetFace = Math.atan2(-(this.x - ox), -(this.z - oz)); moving = true; }
+      // reached waypoints are dropped first, so no frame is lost at a corner (the next leg starts at once)
+      let tx, tz, dx, dz, d, last;
+      for (;;) {
+        [tx, tz] = this.path[0]; dx = tx - this.x; dz = tz - this.z; d = Math.hypot(dx, dz); last = this.path.length === 1;
+        // someone is standing on the spot: stop next to them (last waypoint) or cut the corner (on the way)
+        const onSpot = d < (last ? 1.0 : 0.9) && CREW.others(this).some((o) => Math.hypot(o.x - tx, o.z - tz) < 0.5);
+        if (!(d < (last ? 0.035 : 0.08) || onSpot)) break;
+        this.path.shift(); this.waitT = 0;
+        if (!this.path.length) { this.state = 'idle'; this.speed = Math.min(this.speed, 0.25); const cb = this.onArrive; this.onArrive = null; cb && cb(); d = -1; break; }
       }
-    }
+      if (d >= 0) {
+        // speed: turn first and then walk, slow for corners, brake so as to arrive at a standstill, ease up and down
+        let rem = d; for (let i = 1; i < this.path.length; i++) rem += Math.hypot(this.path[i][0] - this.path[i - 1][0], this.path[i][1] - this.path[i - 1][1]);
+        let want = this.walkSpeed();
+        const aim = Math.atan2(-dx, -dz), dFace = Math.atan2(Math.sin(aim - this.face), Math.cos(aim - this.face));
+        want *= clamp(1.25 - Math.abs(dFace) / 1.2, 0.08, 1);
+        if (this.path.length > 1) { const [nx, nz] = this.path[1], a2 = Math.atan2(-(nx - tx), -(nz - tz)), ang = Math.abs(Math.atan2(Math.sin(a2 - aim), Math.cos(a2 - aim))); if (ang > 0.5) want = Math.min(want, 0.75 + 0.25 * d); }
+        want = Math.min(want, Math.sqrt(2 * 1.5 * Math.max(0, rem - 0.02)) + 0.04);
+        const acc = this.speed < want ? 1.4 : 2.4;
+        this.speed = clamp(this.speed + clamp(want - this.speed, -acc * rdt, acc * rdt), 0, 3);
+        const ox = this.x, oz = this.z;
+        if (this.speed > 1e-4 && this.step(dx / d, dz / d, Math.min(d, this.speed * rdt), rdt)) { this.targetFace = Math.atan2(-(this.x - ox), -(this.z - oz)); moving = true; }
+        else this.speed = Math.max(0, this.speed - 3 * rdt);
+      }
+    } else this.speed = Math.max(0, this.speed - 3 * rdt);
+    this.moveHold = moving ? 0.12 : Math.max(0, (this.moveHold || 0) - rdt);
     // task timing: keep the pose while they are still talking on the radio / phone
     const t = this.task;
     if (t && t.started) {
@@ -454,54 +377,107 @@ class CrewMember {
       if (this.talkT > 0 && PLAYER.inBridge() && !(t && t.started)) { const p = PLAYER.pos(); this.targetFace = Math.atan2(-(p.x - this.x), -(p.z - this.z)); }
       else this.targetFace = this.idleFace ?? 0;
     }
-    let df = ((this.targetFace - this.face + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-    this.face += df * Math.min(1, rdt * 5);
+    // turning: a rate-limited, eased turn (the head leads, see below), faster while walking
+    const df = ((this.targetFace - this.face + Math.PI * 3) % (Math.PI * 2)) - Math.PI, rate = moving ? 3.6 : 2.6;
+    this.face += clamp(df * 6 * rdt, -rate * rdt, rate * rdt);
     // seated: body on the cushion (a little back), chair swivels with the sitter
     const k = this.sitK * this.sitK * (3 - 2 * this.sitK), st = this.lastSeat;
+    let seat = null;
     if (k > 0 && st) {
       const bx = st.x + Math.sin(this.face) * 0.06, bz = st.z + Math.cos(this.face) * 0.06;
       this.group.position.set(lerp(this.x, bx, k), 0, lerp(this.z, bz, k));
       if (this.seat && st.chair) st.chair.rotation.y += (this.face - st.chair.rotation.y) * Math.min(1, rdt * 4);
+      const rest = st.h > 0.8;
+      seat = { h: st.h, rootX: bx, rootZ: bz, footF: rest ? 0.26 : 0.2, footY: rest ? 0.378 : 0 };
     } else this.group.position.set(this.x, 0, this.z);
     this.group.rotation.y = this.face;
-    // animation
-    const L = this.legs, A = this.arms;
-    const onRadio = !moving && (this.pose === 'radio' || this.pose === 'phone');
+    const gp = this.group.position;
+    // ---- legs and pelvis (planted feet, IK)
+    gt.update(rdt, { x: gp.x, z: gp.z, face: this.face, speed: moving || this.moveHold > 0 ? this.speed : 0, walking: moving || this.moveHold > 0, sitK: k, seat });
+    const wa = gt.out.walkAmt, onRadio = !moving && (this.pose === 'radio' || this.pose === 'phone');
     this.handset.visible = onRadio;
-    if (moving) {
-      this.walkPh += rdt * 7.5;
-      const s = Math.sin(this.walkPh);
-      L[0].hp.rotation.x = s * 0.5; L[1].hp.rotation.x = -s * 0.5;
-      L[0].kn.rotation.x = -Math.max(0, -Math.cos(this.walkPh)) * 0.7; L[1].kn.rotation.x = -Math.max(0, Math.cos(this.walkPh)) * 0.7;
-      A[0].sh.rotation.x = s * 0.4; A[1].sh.rotation.x = -s * 0.4; A[0].el.rotation.x = 0.3; A[1].el.rotation.x = 0.3;
-      A[0].sh.rotation.z = -0.08; A[1].sh.rotation.z = 0.08;
-      this.hips.position.y = 0.94 + Math.abs(Math.cos(this.walkPh)) * 0.03; this.torso.rotation.x = 0;
-    } else {
-      this.idleT += rdt;
-      for (const l of L) { l.hp.rotation.x *= 0.85; l.kn.rotation.x *= 0.85; }
-      this.hips.position.y = 0.94;
-      if (k > 0 && st) {   // thighs forward on the cushion, shins down towards the footrest
-        this.hips.position.y = lerp(0.94, st.h + 0.09, k);
-        L.forEach((l, i) => { l.hp.rotation.x = k * (1.42 + i * 0.06); l.kn.rotation.x = -k * (1.2 + i * 0.12); });
-        this.torso.rotation.x = k * 0.06;
-      } else this.torso.rotation.x = 0;
-      const breath = Math.sin(this.idleT * 1.6) * 0.012;
-      this.chest.scale.set(1 + breath, 1, 1 + breath);
-      const set = (a, sx, sz, el) => { a.sh.rotation.x += (sx - a.sh.rotation.x) * Math.min(1, rdt * 8); a.sh.rotation.z += (sz - a.sh.rotation.z) * Math.min(1, rdt * 8); a.el.rotation.x += (el - a.el.rotation.x) * Math.min(1, rdt * 8); };
-      const R = A[1], Lf = A[0], ph = this.idleT;
-      if (this.id === 'ab' && CREW.atHelm()) { set(Lf, 1.0, 0.3, 0.5); set(R, 1.0, -0.3, 0.5); }
-      else if (onRadio) { set(R, 1.35 + Math.sin(ph * 0.7) * 0.03, 0.22, 2.45); set(Lf, 0.1, -0.08, 0.15); }   // elbow forward, handset at the ear
-      else if (this.pose === 'press') { set(R, 0.95 + Math.max(0, Math.sin(ph * 5)) * 0.12, 0.08, 0.35 - Math.max(0, Math.sin(ph * 5)) * 0.1); set(Lf, 0.45, -0.05, 0.6); }
-      else if (this.pose === 'write') { set(R, 0.7, 0.05, 0.95 + Math.sin(ph * 9) * 0.05); set(Lf, 0.6, -0.05, 0.9); }
-      else if (this.talkT > 0) { set(R, 0.5 + Math.sin(ph * 4) * 0.2, 0.08, 0.8); set(Lf, 0.0, -0.08, 0.1); }
-      else if (this.pose === 'console') { set(Lf, 0.55, -0.05, 0.6); set(R, 0.55, 0.05, 0.6); }
-      else if (this.pose === 'binos') { set(Lf, 1.4, 0.5, 1.6); set(R, 1.4, -0.5, 1.6); }
-      else { set(Lf, 0.0, -0.08, 0.1); set(R, 0.0, 0.08, 0.1); }
+    this.idleT += rdt;
+    const ph = this.idleT, sitting = k;
+    // ---- trunk: breathing, lean, counter-rotation against the pelvis
+    const breath = Math.sin(this.breathPh + ph * 1.7) * 0.013 + 0.004 * Math.sin(ph * 0.31);
+    this.chest.scale.set(1 + breath, 1 + breath * 0.3, 1 + breath * 1.3);
+    const task = this.pose === 'console' || this.pose === 'press' || this.pose === 'write';
+    const leanPose = (task ? 0.08 : 0) + (this.pose === 'write' ? 0.1 : 0) + sitting * 0.05 + (this.look.gait && this.look.gait.stoop || 0) * (0.6 + 0.4 * (1 - wa));
+    this.torso.rotation.set(gt.leanF * (1 - sitting) + leanPose, -1.55 * gt.yawP * wa + this.gz.torsoYaw, gt.leanS - 0.5 * gt.rollP, 'YXZ');
+    // ---- arms: swing against the legs while walking, the task pose otherwise
+    const aj = this.aj, A = this.arms;
+    this.armTargets(ph, onRadio);
+    for (let i = 0; i < 2; i++) {
+      const a = aj[i], T = this.at[i], s = i === 0 ? -1 : 1;
+      let sx = T.sx, sz = T.sz, sy = T.sy, el = T.el, pr = T.pr;
+      if (wa > 0.01) {
+        // arm swing: opposite to the leg on the same side, growing with speed; the elbow flexes more as the arm comes forward
+        const off = i === 0 ? gt.out.offR : gt.out.offL, sw = -0.04 + 0.95 * gt.armK * off;
+        const swEl = 0.2 + 0.5 * clamp((sw + 0.22) / 0.55, 0, 1) + 0.12 * clamp(this.speed - 1, 0, 1);
+        sx = lerp(sx, sw, wa); sz = lerp(sz, s * 0.07, wa); sy = lerp(sy, 0, wa); el = lerp(el, swEl, wa); pr = lerp(pr, 0, wa);
+      }
+      const tau = wa > 0.3 ? 0.035 : 0.1;
+      a.sx = humDamp(a.sx, sx, rdt, tau); a.sy = humDamp(a.sy, sy, rdt, tau); a.sz = humDamp(a.sz, sz, rdt, tau); a.el = humDamp(a.el, el, rdt, tau); a.pr = humDamp(a.pr, pr, rdt, tau);
+      A[i].sh.rotation.set(a.sx, a.sy, a.sz); A[i].el.rotation.set(a.el, 0, 0);
+      A[i].fa.rotation.y = a.pr * 0.5; A[i].wr.rotation.y = a.pr * 0.5; A[i].wr.rotation.x = 0;
     }
-    // head: nod when talking, look around when idle
-    if (this.talkT > 0) { this.talkT -= rdt; this.head.rotation.x = Math.sin(this.idleT * 6) * 0.06 + (onRadio ? 0.05 : 0); this.head.rotation.y *= 0.9; }
-    else if (this.pose === 'binos') { this.head.rotation.y = Math.sin(this.idleT * 0.15) * 0.25; this.head.rotation.x = 0; }
-    else { this.head.rotation.y = Math.sin(this.idleT * 0.23 + this.x) * (this.pose ? 0.15 : 0.35); this.head.rotation.x = this.pose === 'console' || this.pose === 'press' || this.pose === 'write' ? -0.25 : 0; }
+    // hands on the desk, at the ear or at the eyes: solved from where the hand has to be, so the pose fits every body
+    this.hips.updateMatrix(); this.torso.updateMatrix(); _ikS.M.multiplyMatrices(this.hips.matrix, this.torso.matrix); _ikS.Mi.copy(_ikS.M).invert();
+    for (let i = 0; i < 2; i++) this.applyArmIK(i, this.ikC[i], rdt);
+    if (this.binoMesh) this.binoMesh.visible = this.pose === 'binos' && this.ikS[0].w > 0.6;
+    // ---- head: looks where it is going, nods when talking, glances around when idle; levelled against the body's motion
+    const gz = this.gz; gz.t -= rdt;
+    if (gz.t <= 0) {
+      gz.t = 1.6 + this.rng() * 3.8; const amp = this.pose ? 0.2 : 0.42;
+      gz.tYaw = (this.rng() - 0.5) * 2 * amp; gz.tNod = (this.rng() - 0.5) * 0.12;
+      if (this.pose === 'binos') gz.tYaw = Math.sin(this.idleT * 0.15) * 0.25;
+    }
+    let tYaw = gz.tYaw, tNod = gz.tNod + (task ? -0.25 : 0) + (onRadio ? 0.05 : 0);
+    if (moving) { tYaw *= 0.3; tNod = tNod * 0.4 - 0.02; }
+    // anticipation: when the body is turning to face something the head gets there first
+    const lead = clamp(df * 0.55, -0.7, 0.7); tYaw += lead * (moving ? 0.4 : 1);
+    if (this.talkT > 0) { this.talkT -= rdt; tNod += Math.sin(ph * 6) * 0.05; tYaw *= 0.4; }
+    gz.yaw = humDamp(gz.yaw, tYaw, rdt, 0.22); gz.nod = humDamp(gz.nod, tNod, rdt, 0.2);
+    gz.torsoYaw = humDamp(gz.torsoYaw, clamp(gz.yaw * 0.25, -0.2, 0.2) * (1 - wa), rdt, 0.4);
+    const tr = this.torso.rotation, hp = this.hips.rotation;
+    this.head.rotation.set(gz.nod - tr.x * 0.6 - hp.x * 0.3, gz.yaw - (tr.y + hp.y) * 0.85 - gz.torsoYaw, -(tr.z + hp.z) * 0.8, 'YXZ');
+    this.neck.rotation.set(0, 0, 0);
+  }
+  // arm targets (shoulder flexion / rotation / abduction, elbow flexion, pronation) for each arm by pose
+  armTargets(ph, onRadio) {
+    const T = this.at, C = this.ikC, set = (a, sx, sz, el, pr = 0, sy = 0) => { a.sx = sx; a.sy = sy; a.sz = sz; a.el = el; a.pr = pr; };
+    const L = T[0], R = T[1], pose = this.pose;
+    // IK hand targets: space 'root' (x right, y up from the floor, z back; wrist position) or 'head' (head-centre frame); pole = where the elbow points
+    const ik = (i, space, x, y, z, pole, pr, wx = 0) => { const c = C[i]; c.on = true; c.space = space; c.x = x; c.y = y; c.z = z; c.pole = pole; c.pr = pr; c.wx = wx; };
+    C[0].on = C[1].on = false;
+    const deskL = [-0.45, -1, 0.4], deskR = [0.45, -1, 0.4];
+    if (this.id === 'ab' && CREW.atHelm()) { set(L, 1.0, 0.3, 0.5, 0.5); set(R, 1.0, -0.3, 0.5, -0.5); ik(0, 'root', -0.2, 1.1, -0.36, deskL, -1.0); ik(1, 'root', 0.2, 1.1, -0.36, deskR, 1.0); }
+    else if (onRadio) { set(R, 1.35 + Math.sin(ph * 0.7) * 0.03, 0.22, 2.45, 0.2); set(L, 0.03, -0.08, 0.15); ik(1, 'head', 0.14, -0.185 + Math.sin(ph * 0.7) * 0.004, -0.1, [0.5, -0.9, -0.6], 0.2, 0.25); }
+    else if (pose === 'press') { const p = Math.max(0, Math.sin(ph * 5)); set(R, 0.95 + p * 0.12, 0.08, 0.35 - p * 0.1, -0.9); set(L, 0.45, -0.05, 0.6, 0.9); ik(1, 'root', 0.1, 1.145 - p * 0.012, -0.44 - p * 0.02, deskR, 1.15, 0.1); ik(0, 'root', -0.18, 1.125, -0.32, deskL, -1.15, 0.1); }
+    else if (pose === 'write') { set(R, 0.7, 0.05, 0.95 + Math.sin(ph * 9) * 0.05, -0.9); set(L, 0.6, -0.05, 0.9, 0.9); ik(1, 'root', 0.1 + Math.sin(ph * 2.2) * 0.02, 0.955, -0.36 + Math.sin(ph * 9) * 0.006, deskR, 1.15, 0.15); ik(0, 'root', -0.2, 0.955, -0.28, deskL, -1.15, 0.1); }
+    else if (this.talkT > 0) { set(R, 0.5 + Math.sin(ph * 4) * 0.2, 0.08, 0.8, -0.3); set(L, 0.03, -0.08, 0.14); }
+    else if (pose === 'console') { set(L, 0.55, -0.05, 0.6, 0.9); set(R, 0.55, 0.05, 0.6, -0.9); ik(0, 'root', -0.17, 1.125, -0.34, deskL, -1.15, 0.1); ik(1, 'root', 0.17, 1.125, -0.34, deskR, 1.15, 0.1); }
+    else if (pose === 'binos') { set(L, 1.4, 0.5, 1.6, 0.4); set(R, 1.4, -0.5, 1.6, -0.4); ik(0, 'head', -0.085, -0.2, -0.19, [-0.7, -1, -0.2], -0.5, 0.3); ik(1, 'head', 0.085, -0.2, -0.19, [0.7, -1, -0.2], 0.5, 0.3); }
+    else { set(L, 0.03, -0.08, 0.14); set(R, 0.03, 0.08, 0.14); }
+  }
+  // blend the arm towards the IK solution for its hand target (weight eased in and out)
+  applyArmIK(i, c, dt) {
+    const A = this.arms[i], ik = this.ikS[i], P = this.P;
+    ik.w = humDamp(ik.w, c.on ? 1 : 0, dt, c.on ? 0.25 : 0.2);
+    if (ik.w < 0.003) return;
+    if (c.space === 'head') {
+      this.neck.updateMatrix(); this.head.updateMatrix(); this.hc.updateMatrix();
+      _ikS.Mh.multiplyMatrices(this.neck.matrix, this.head.matrix).multiply(this.hc.matrix); _ikS.T.set(c.x, c.y, c.z).applyMatrix4(_ikS.Mh);
+    } else _ikS.T.set(c.x, c.y, c.z).applyMatrix4(_ikS.Mi);
+    if (!ik.init) { ik.p.copy(_ikS.T); ik.init = true; } else ik.p.lerp(_ikS.T, 1 - Math.exp(-dt / 0.1));
+    _ikS.S.copy(A.clav.position).add(A.sh.position);
+    _ikS.pole.set(c.pole[0], c.pole[1], c.pole[2]);
+    _ikS.q.copy(A.sh.quaternion); const elFk = A.el.rotation.x, prFk = A.fa.rotation.y * 2;
+    humArmIK(A.sh, A.el, P.upper, P.fore, _ikS.S, ik.p, _ikS.pole);
+    const elIk = A.el.rotation.x; _ikS.q2.copy(A.sh.quaternion);
+    A.sh.quaternion.copy(_ikS.q).slerp(_ikS.q2, ik.w);
+    A.el.rotation.set(elFk + (elIk - elFk) * ik.w, 0, 0);
+    const pr = prFk + (c.pr - prFk) * ik.w; A.fa.rotation.y = pr * 0.5; A.wr.rotation.y = pr * 0.5; A.wr.rotation.x = c.wx * ik.w;
   }
 }
 
@@ -527,11 +503,11 @@ const CREW = {
   init() {
     SPEECH.init();
     const m = (id, look, node, face = 0, pose) => { const c = new CrewMember(id, look, node); c.idleFace = face; c.pose = pose; c.setHome(node, face, pose); this.members.push(c); return c; };
-    m('co', { shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 3, skin: 0xe2b99a, hair: 0xb89a6a, radio: true, tone: '#fff4ee', shave: false, beard: '120,88,52', brow: '#b08858', hairStyle: 'short', hairCol: '#8a6a44', iris: '#4a7aa8', seed: 11 }, 'ecdL', 0, 'console');
-    m('o2', { female: true, shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 2, skin: 0xa8765a, hair: 0x1b120c, radio: true, tone: '#e0b08c', shave: true, lips: 'rgba(165,55,72,0.55)', brow: '#553020', hairStyle: 'bob', hairCol: '#2a1810', iris: '#3a2616', seed: 12, headScale: 1.0 }, 'ecdR', 0, 'console');
-    m('o3', { shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 1, skin: 0x9a6a4a, hair: 0x120c08, glasses: true, tone: '#b27a52', shave: 'light', brow: '#3a2010', hairStyle: 'short', hairCol: '#120c08', iris: '#2a1a0e', seed: 13 }, 'tele', 0, 'console');
-    m('ab', { coverall: true, pants: 0xe0661c, shirt: 0xe0661c, skin: 0xb07a55, hair: 0x120c08, tone: '#c98f64', shave: true, brow: '#3a2010', hairStyle: 'crop', hairCol: '#0e0a08', iris: '#2e1d10', seed: 14, headScale: 0.98 }, 'aftC', 0.3);
-    const pl = m('pilot', { shirt: 0x1d2a3a, pants: 0x2a2a2a, vest: 0xf07a14, skin: 0xe8c0a0, hair: 0x8a8a8a, glasses: true, tone: '#fff0ea', shave: 'light', brow: '#8a8078', hairStyle: 'receding', hairCol: '#9a968e', iris: '#5a7890', seed: 15, headScale: 1.02 }, 'door', 0);
+    m('co', { height: 1.86, build: 'average', shoulder: 1.04, belly: 0.08, legLen: 1.02, foot: 1.06, gait: { speed: 0.96, cadence: 0.96, arms: 1.0, toeOut: 0.09 }, shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 3, skin: 0xe2b99a, hair: 0xb89a6a, radio: true, tone: '#fff4ee', shave: false, beard: '120,88,52', brow: '#b08858', hairStyle: 'short', hairCol: '#8a6a44', iris: '#4a7aa8', seed: 11 }, 'ecdL', 0, 'console');
+    m('o2', { female: true, height: 1.68, build: 'lean', hips: 1.04, gait: { speed: 1.03, cadence: 1.05, arms: 0.95, sway: 1.2, toeOut: 0.06 }, shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 2, skin: 0xa8765a, hair: 0x1b120c, radio: true, tone: '#e0b08c', shave: true, lips: 'rgba(165,55,72,0.55)', brow: '#553020', hairStyle: 'bob', hairCol: '#2a1810', iris: '#3a2616', seed: 12, headScale: 1.0 }, 'ecdR', 0, 'console');
+    m('o3', { height: 1.74, build: 'lean', shoulder: 0.98, sleeves: 'short', gait: { speed: 1.06, cadence: 1.04, stoop: 0.05, arms: 0.9 }, shirt: 0xf3f3f0, pants: 0x1c2230, epaulettes: 1, skin: 0x9a6a4a, hair: 0x120c08, glasses: true, tone: '#b27a52', shave: 'light', brow: '#3a2010', hairStyle: 'short', hairCol: '#120c08', iris: '#2a1a0e', seed: 13 }, 'tele', 0, 'console');
+    m('ab', { height: 1.66, build: 'stocky', shoulder: 1.05, arm: 1.06, leg: 1.04, legLen: 0.97, boots: true, gait: { speed: 1.13, cadence: 1.06, arms: 1.15, sway: 1.1, toeOut: 0.13 }, coverall: true, pants: 0xe0661c, shirt: 0xe0661c, skin: 0xb07a55, hair: 0x120c08, tone: '#c98f64', shave: true, brow: '#3a2010', hairStyle: 'crop', hairCol: '#0e0a08', iris: '#2e1d10', seed: 14, headScale: 0.98 }, 'aftC', 0.3);
+    const pl = m('pilot', { height: 1.82, build: 'heavy', belly: 0.5, gait: { speed: 0.88, cadence: 0.93, arms: 0.85, stoop: 0.07, sway: 1.15, toeOut: 0.16 }, shirt: 0x1d2a3a, pants: 0x2a2a2a, vest: 0xf07a14, skin: 0xe8c0a0, hair: 0x8a8a8a, glasses: true, tone: '#fff0ea', shave: 'light', brow: '#8a8078', hairStyle: 'receding', hairCol: '#9a968e', iris: '#5a7890', seed: 15, headScale: 1.02 }, 'door', 0);
     pl.present = false; pl.group.visible = false; pl.hit.visible = false;
     this.buildStationFigures();
   },
@@ -704,15 +680,33 @@ const CREW = {
     this.stations = { fwd: [], aft: [] };
     const sg = G.shipGroup;
     const o = sg.userData.o;
-    const mk = (x, y, z, face, helmetCol) => { const h = buildHuman({ coverall: true, pants: 0xe0661c, shirt: 0xe0661c, hat: 'helmet', helmetCol, skin: 0xb07a55, gloves: true, procedural: true }); h.root.position.set(x, y, z); h.root.rotation.y = face; h.root.visible = false; h.root.scale.setScalar(1.05); sg.add(h.root); return h; };
+    const bodies = [[1.74, 'average'], [1.70, 'stocky'], [1.80, 'lean'], [1.68, 'stocky'], [1.77, 'average'], [1.82, 'heavy']];
+    let n = 0;
+    const mk = (x, y, z, face, helmetCol) => {
+      const [height, build] = bodies[n % bodies.length], look = { coverall: true, pants: 0xe0661c, shirt: 0xe0661c, hat: 'helmet', helmetCol, skin: 0xb07a55, gloves: true, boots: true, procedural: true, lod: 'low', height, build, belly: build === 'heavy' ? 0.3 : 0, seed: 41 + n, gait: { toeOut: 0.14 } };
+      const h = buildHuman(look); h.gait = new HumGait(h, look, 41 + n); h.n = n++;
+      h.root.position.set(x, y, z); h.root.rotation.y = face; h.root.visible = false; sg.add(h.root); return h;
+    };
     const fy = o.D + o.fc, ay = o.D;
     const zb = o.L / 2 - 0.955 * o.L, zs = o.L / 2 - 0.03 * o.L;
     this.stations.fwd.push(mk(-6, fy, zb + 4, 0.3, 0xffffff), mk(4, fy, zb + 2, -0.5, 0xffd21a), mk(9, fy, zb - 3, -1.2, 0xffd21a));
     this.stations.aft.push(mk(6, ay, zs - 3, 2.6, 0xffffff), mk(-5, ay, zs - 1, 3.4, 0xffd21a), mk(-10, ay, zs + 2, 2.2, 0xffd21a));
   },
+  // the deck hands stand their watch: weight shifting from the gait solver, breathing, a look around, one hand now and then at the radio on the chest
   updateStations(dt) {
-    const t = G.simT;
-    for (const k of ['fwd', 'aft']) this.stations[k].forEach((h, i) => { if (!h.root.visible) return; h.head.rotation.y = Math.sin(t * 0.3 + i) * 0.6; h.arms[1].sh.rotation.x = Math.sin(t * 0.8 + i * 2) * 0.3 + 0.2; });
+    const t = G.simT, c = this._stc || (this._stc = { x: 0, z: 0, face: 0, speed: 0, walking: false, sitK: 0, seat: null });
+    for (const k of ['fwd', 'aft']) this.stations[k].forEach((h, i) => {
+      if (!h.root.visible) return;
+      h.gait.update(dt, c);
+      const ph = t * 0.35 + h.n * 2.1, look = Math.sin(ph) * 0.55 + Math.sin(ph * 2.7) * 0.2, radio = Math.max(0, Math.sin(t * 0.11 + h.n * 1.7)) ** 2;
+      const br = Math.sin(t * 1.7 + h.n) * 0.013;
+      h.chest.scale.set(1 + br, 1 + br * 0.3, 1 + br * 1.3);
+      h.torso.rotation.set(0.03, look * 0.15, -0.4 * h.gait.rollP, 'YXZ');
+      h.head.rotation.set(-0.03 + 0.06 * Math.sin(t * 0.4 + h.n), look * 0.85, 0, 'YXZ');
+      const a = h.arms;
+      a[0].sh.rotation.set(0.04, 0, -0.09); a[0].el.rotation.set(0.18, 0, 0);
+      a[1].sh.rotation.set(0.05 + 0.9 * radio, 0, 0.09 - 0.12 * radio); a[1].el.rotation.set(0.2 + 1.25 * radio, 0, 0); a[1].fa.rotation.y = 0.3 * radio; a[1].wr.rotation.y = 0.3 * radio;
+    });
   },
   showStation(k, on) { this.stations[k].forEach((h) => (h.root.visible = on)); },
 

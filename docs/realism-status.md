@@ -117,13 +117,13 @@ Leftover headless Chrome processes: kill them by PID, never with `pkill -f` (it 
 
 1. Merge the branch's commits to `main` and push (this deploys the live game).
 2. Whether to keep the Retina default of starting the governor one level down.
-3. The crew work below: integrate, or discard.
 
-## Crew bodies and walking (subagent, in progress at wrap-up)
+## Crew bodies and walking (done by a Sonnet subagent, integrated)
 
-A Sonnet subagent is making the human characters more realistic in body and gait, in an isolated worktree
-(`.claude/worktrees/agent-a2c16c5d25b500d6f`, branch `worktree-agent-a2c16c5d25b500d6f`, based on `ac00606`, nothing committed). It touches only
-`src/09_crew.js`, `src/09a_heads.js`, new `src/09b_*.js` and `tools/crew*`. At the last look it had new body, cloth, extremities and gait modules and
-its start/stop walking sequence showed a believable heel-strike and knee-flexion cycle. To integrate: review the diff, copy the `src/09*` files and
-tools into the branch, rebuild, run `node tools/smoke.mjs 60`, compare close-ups of all five bridge crew standing, seated, on the radio and
-walking, check the night view (the weathering patch also evaluates the deck floodlights), and check the frame time (about 8 people).
+New modules `src/09b_body.js` (23-bone skinned body, lofted shells, per-person build), `09b_extremities.js` (hands with fingers, shoes), `09b_cloth.js`
+(procedural normal/roughness maps: placket, pockets, creases), `09b_details.js` (collar, epaulettes, buckle, radio, hi-vis), `09b_gait.js` (planted feet with
+heel strike and toe-off, leg IK, pelvis motion, stride matched to speed, settle steps); `09_crew.js` and `09a_heads.js` call them. Measured foot skate while walking:
+lowest-foot speed 3.7 m/s before, 0.02–0.03 m/s after. The smoke test is clean in all seven cases with them. I looked at the bridge by day and night: the bodies read
+well; hair is still a plain cap and the glasses basic. Not tested by the agent or me: the AB's helm pose, sit/stand transitions, save/restore of a mid-walk crew
+member, frame time with all crew at high quality (a person is near 20 k triangles). The deck figures are a few pixels tall in the orbit view. The agent's
+before/after images are in the session scratchpad (`crew/`, temporary); its worktree `.claude/worktrees/agent-a2c16c5d25b500d6f` can be deleted.

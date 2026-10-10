@@ -40,6 +40,7 @@ const HEADS = {
       const merge = (list) => { const g = mergeGeometries(list, false); g.applyMatrix4(M); g.computeBoundingSphere(); return g; };
       for (const t of [face, hair]) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; }
       this.fem = { face: merge(parts.face), hair: merge(parts.hair), faceTex: face, hairTex: hair };
+      this.fem.face = this.extendNeck(this.fem.face, 0.012, 0.115, 4, 0.1);
       // skin colour for the hands: average of a plain patch of cheek (clear of the painted blush)
       const c = makeCanvas(1, 1), x = c.getContext('2d'); x.drawImage(face.image, 82, 162, 16, 16, 0, 0, 1, 1);
       const p = x.getImageData(0, 0, 1, 1).data; this.fem.skin = new THREE.Color(`rgb(${p[0]},${p[1]},${p[2]})`);
@@ -52,6 +53,7 @@ const HEADS = {
     const face = new THREE.Mesh(F.face, new THREE.MeshStandardMaterial({ map: F.faceTex, roughness: 0.55, envMapIntensity: 0.5, side: THREE.DoubleSide }));
     const hair = new THREE.Mesh(F.hair, new THREE.MeshStandardMaterial({ map: F.hairTex, roughness: 0.7, envMapIntensity: 0.4, side: THREE.DoubleSide }));
     for (const m of [face, hair]) { m.castShadow = true; m.receiveShadow = true; grp.add(m); }
+    grp.traverse((q) => { if (q.isMesh) humHook(q.material); });
     return { group: grp, skin: F.skin.clone(), eyes: [] };
   },
   async loadScan() {
@@ -145,6 +147,57 @@ const HEADS = {
       return [mk(1, 0.026), mk(-1, 0.01)];
     });
   },
+  // The scans end in a neck that stops just above the collar line. With the body's proportions (a neck 8-10 cm long in front)
+  // that leaves a hole, so the open lower edge is carried on down into the shirt: `rings` copies of the boundary loop, lowered by
+  // `depth` (geometry units) and widened a little, with the same texture coordinates. Works on indexed and non-indexed
+  // geometry (welded here by position, normal and uv); only the lowest open edge (within `band` of the lowest boundary vertex) is
+  // extended, the eye openings etc. are left alone.
+  extendNeck(geo, band, depth, rings = 3, flare = 0.12) {
+    const P = geo.attributes.position, N = geo.attributes.normal, U = geo.attributes.uv, nv = P.count;
+    let idx = geo.index ? Array.from(geo.index.array) : null, pos = Array.from(P.array), nrm = Array.from(N.array), uv = U ? Array.from(U.array) : null;
+    if (!idx) {                                         // weld the triangle soup
+      const map = new Map(), np = [], nn = [], nu = [], ni = [];
+      for (let i = 0; i < nv; i++) {
+        const key = [pos[3 * i], pos[3 * i + 1], pos[3 * i + 2], nrm[3 * i], nrm[3 * i + 1], nrm[3 * i + 2], uv ? uv[2 * i] : 0, uv ? uv[2 * i + 1] : 0].map((v) => Math.round(v * 1e4)).join(',');
+        let k = map.get(key); if (k === undefined) { k = np.length / 3; map.set(key, k); np.push(pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]); nn.push(nrm[3 * i], nrm[3 * i + 1], nrm[3 * i + 2]); if (uv) nu.push(uv[2 * i], uv[2 * i + 1]); }
+        ni.push(k);
+      }
+      idx = ni; pos = np; nrm = nn; uv = uv ? nu : null;
+    }
+    const nvert = pos.length / 3;
+    // edges by position-welded ids, so that uv seams are not mistaken for open edges
+    const wid = new Map(), canon = new Int32Array(nvert);
+    for (let i = 0; i < nvert; i++) { const k = [pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]].map((v) => Math.round(v * 1e4)).join(','); let c = wid.get(k); if (c === undefined) { c = i; wid.set(k, c); } canon[i] = c; }
+    const cnt = new Map(), dir = new Map();
+    for (let t = 0; t < idx.length; t += 3) for (let e = 0; e < 3; e++) {
+      const a = idx[t + e], b = idx[t + (e + 1) % 3], ca = canon[a], cb = canon[b], k = ca < cb ? ca + '_' + cb : cb + '_' + ca;
+      cnt.set(k, (cnt.get(k) || 0) + 1); dir.set(k, [a, b]);
+    }
+    const open = []; let low = 1e9;
+    for (const [k, c] of cnt) if (c === 1) { const [a, b] = dir.get(k); open.push([a, b]); low = Math.min(low, pos[3 * a + 1], pos[3 * b + 1]); }
+    const edges = open.filter(([a, b]) => pos[3 * a + 1] < low + band && pos[3 * b + 1] < low + band);
+    // centre line of the neck loop
+    let cx = 0, cz = 0, n = 0; for (const [a] of edges) { cx += pos[3 * a]; cz += pos[3 * a + 2]; n++; } cx /= n; cz /= n;
+    const ring = new Map();                               // 'vertex_j' → new vertex index
+    const vert = (v, j) => {
+      const key = v + '_' + j; let r = ring.get(key); if (r !== undefined) return r;
+      const t = j / rings, x = pos[3 * v], y = pos[3 * v + 1], z = pos[3 * v + 2], f = 1 + flare * t;
+      r = pos.length / 3; ring.set(key, r);
+      pos.push(cx + (x - cx) * f, y - depth * t, cz + (z - cz) * f);
+      const nx = nrm[3 * v], ny = nrm[3 * v + 1] - 0.25 * t, nz = nrm[3 * v + 2], l = Math.hypot(nx, ny, nz) || 1; nrm.push(nx / l, ny / l, nz / l);
+      if (uv) uv.push(uv[2 * v], uv[2 * v + 1]);
+      return r;
+    };
+    for (const [a, b] of edges) for (let j = 0; j < rings; j++) {
+      const a0 = j ? vert(a, j) : a, b0 = j ? vert(b, j) : b, a1 = vert(a, j + 1), b1 = vert(b, j + 1);
+      idx.push(b0, a0, a1, b0, a1, b1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+    if (uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx); g.computeBoundingSphere();
+    return g;
+  },
   hairGeo(style, female) {
     const th = { short: [0.2, 0.08], side: [0.3, 0.12], bun: [0.26, 0.12], bob: [0.28, 0.16], crop: [0.07, 0.05], grey: [0.14, 0.07], receding: [0.12, 0.06] }[style] || [0.2, 0.08];
     const P = female ? this.femaleGeo().attributes.position : this.P, N = this.N;
@@ -228,13 +281,26 @@ const HEADS = {
       x.beginPath(); x.moveTo(452, 480); x.quadraticCurveTo(482, 458, 512, 466); x.quadraticCurveTo(542, 458, 572, 480); x.quadraticCurveTo(512, 506, 452, 480); x.fill(); x.restore();
       x.save(); x.filter = 'blur(30px)'; x.fillStyle = 'rgba(210,90,100,0.16)'; for (const bx of [385, 640]) { x.beginPath(); x.ellipse(bx, 420, 55, 38, 0, 0, 7); x.fill(); } x.restore();
     }
-    // brows & lash line in the person's hair colour
     // skin tone
-    x.save(); x.globalCompositeOperation = 'multiply'; x.fillStyle = o.tone || '#ffffff'; x.fillRect(0, 0, 1024, 1024); x.restore();
+    if (o.skin !== undefined) this.matchSkin(x, o.skin); else { x.save(); x.globalCompositeOperation = 'multiply'; x.fillStyle = o.tone || '#ffffff'; x.fillRect(0, 0, 1024, 1024); x.restore(); }
     const s2 = x.getImageData(560, 360, 1, 1).data;
     this._lastSkin = new THREE.Color(`rgb(${s2[0]},${s2[1]},${s2[2]})`);
     const t = canvasTexture(c); t.anisotropy = 8;
     return t;
+  },
+  // Shifts the face texture's overall colour to a target skin colour (hex) while keeping every bit of its variation: the mean of the forehead and
+  // cheeks is measured, each channel is scaled by target / mean in linear light, and the result is eased a little towards its luminance.
+  matchSkin(x, hex) {
+    const T = [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255], patches = [[512, 250], [395, 430], [630, 430], [512, 330]], m = [0, 0, 0];
+    for (const [px, py] of patches) { const d = x.getImageData(px - 18, py - 12, 36, 24).data; for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) m[c] += (d[i + c] / 255) ** 2.2 / (d.length / 4 * patches.length); }
+    const lin = (v) => (v / 255) ** 2.2, scale = T.map((t, c) => lin(t) / Math.max(1e-3, m[c]));
+    const lut = scale.map((sc) => Uint8ClampedArray.from({ length: 256 }, (_, v) => 255 * Math.min(1, lin(v) * sc) ** (1 / 2.2)));
+    const img = x.getImageData(0, 0, 1024, 1024), d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = lut[0][d[i]], g = lut[1][d[i + 1]], b = lut[2][d[i + 2]], l = 0.3 * r + 0.59 * g + 0.11 * b;
+      d[i] = l + (r - l) * 0.9; d[i + 1] = l + (g - l) * 0.9; d[i + 2] = l + (b - l) * 0.9;
+    }
+    x.putImageData(img, 0, 0);
   },
   hairTexture(col, seed = 1, long = false) {
     const c = makeCanvas(512, 512), x = c.getContext('2d');
@@ -298,8 +364,8 @@ const HEADS = {
     inner.position.set(0, -0.06 - ey * S, 0);
     grp.add(inner);
     const skinMap = this.skinTexture(o);
-    const skinMat = new THREE.MeshStandardMaterial({ map: skinMap, normalMap: this.nrm, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.58, metalness: 0, envMapIntensity: 0.5 });
-    const head = new THREE.Mesh(o.female ? this.femaleGeo() : this.headGeo, skinMat); head.castShadow = true; head.receiveShadow = true; inner.add(head);
+    const skinMat = new THREE.MeshPhysicalMaterial({ map: skinMap, normalMap: this.nrm, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.52, metalness: 0, envMapIntensity: 0.5, specularIntensity: 0.6, sheen: 0.5, sheenRoughness: 0.75, sheenColor: new THREE.Color(0xff8f78) });
+    const head = new THREE.Mesh(o.female ? (this._femX ||= this.extendNeck(this.femaleGeo(), 0.4, 1.4, 3, 0.12)) : (this._headX ||= this.extendNeck(this.headGeo, 0.4, 1.4, 3, 0.12)), skinMat); head.castShadow = true; head.receiveShadow = true; inner.add(head);
     // eye sockets (dark back-face so the openings never show through the skull)
     const socketMat = new THREE.MeshStandardMaterial({ color: 0x5a2c26, roughness: 0.6 });
     const irisMat = new THREE.MeshStandardMaterial({ map: this.irisTexture(o.iris || '#5a3a22'), roughness: 0.12, metalness: 0, envMapIntensity: 0.8 });
@@ -331,6 +397,7 @@ const HEADS = {
         const tie = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.1, 8, 20), new THREE.MeshStandardMaterial({ color: 0x1a2233, roughness: 0.6 })); tie.position.set(0, 1.62, -1.85); inner.add(tie);
       }
     }
+    grp.traverse((q) => { if (q.isMesh) humHook(q.material); });
     return { group: grp, skin: this._lastSkin, eyes };
   },
 };
