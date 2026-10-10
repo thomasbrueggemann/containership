@@ -22,7 +22,7 @@ const port = srv.address().port;
 async function runCase(tod, quality, extra = '') {
   const dport = 9300 + Math.floor(Math.random() * 500), prof = fs.mkdtempSync('/tmp/smoke-');
   const ch = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${dport}`, `--user-data-dir=${prof}`, '--window-size=1280,800', '--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', 'about:blank'], { stdio: 'ignore' });
-  const problems = [], info = {};
+  const problems = [], info = {}; let glWarn = 0;
   let ws, id = 0; const pending = new Map();
   const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
   const ev = async (expression) => { const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }); if (r?.exceptionDetails) problems.push('eval: ' + (r.exceptionDetails.exception?.description || r.exceptionDetails.text)); return r?.result?.value; };
@@ -36,6 +36,8 @@ async function runCase(tod, quality, extra = '') {
       if (d.method === 'Runtime.exceptionThrown') problems.push('exception: ' + (d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text));
       if (d.method === 'Runtime.consoleAPICalled' && d.params.type === 'error') problems.push('console.error: ' + d.params.args.map((a) => a.value ?? a.description ?? '').join(' ').slice(0, 300));
       if (d.method === 'Log.entryAdded' && d.params.entry.level === 'error' && !/favicon|404/.test(d.params.entry.text + (d.params.entry.url || ''))) problems.push('log.error: ' + d.params.entry.text.slice(0, 300));
+      // the driver reports invalid GL calls as *warnings* in the log (and stops after 256); gl.getError() sampled once per view misses most of them
+      if (d.method === 'Log.entryAdded' && /GL_INVALID|CONTEXT_LOST|Mismatch between texture/.test(d.params.entry.text)) { glWarn++; if (glWarn === 1) problems.push('WebGL driver error: ' + d.params.entry.text.slice(0, 200)); }
     };
     await send('Page.enable'); await send('Runtime.enable'); await send('Log.enable');
     const t0 = Date.now();
@@ -91,6 +93,7 @@ async function runCase(tod, quality, extra = '') {
     if (gle) problems.push('GL error after resize: ' + gle);
   } catch (e) { problems.push('harness: ' + e.message); }
   finally { ch.kill(); await sleep(400); try { fs.rmSync(prof, { recursive: true, force: true, maxRetries: 5 }); } catch {} }
+  if (glWarn > 1) problems.push(`…and ${glWarn - 1} more WebGL driver errors`);
   return { problems, info };
 }
 

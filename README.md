@@ -115,6 +115,8 @@ the game in every time of day and quality level, runs the simulation, visits the
 do not come up, or a broken save/restore round trip.
 `tools/cpuprof.mjs` samples the JavaScript profile of the running game and reports how much of each frame the page spends waiting for the GPU.
 
+What is left of the realism work, what was tried and dropped, the measured costs and how to continue: [docs/realism-status.md](docs/realism-status.md).
+
 ## Credits
 
 - [three.js](https://threejs.org) (MIT), loaded from jsDelivr.

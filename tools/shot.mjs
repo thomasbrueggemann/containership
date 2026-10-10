@@ -4,6 +4,7 @@
 // e.g.  node tools/shot.mjs /tmp/shots "tod=night&sea=rough" bridge,orbit,water 14 1600x900
 // Env:  SHOT_CONSOLE=1 prints console output / exceptions;  SHOT_JS="..." evaluated once before the presets;
 //       SHOT_PERF=1 also prints the average frame time (ms) of 90 frames after each shot,
+//       SHOT_EARLY="..." runs in every new document before the page's own scripts,
 //       SHOT_URL=https://… shoots a deployed build instead of the local one (e.g. the GitHub Pages site),
 //       SHOT_AFTER="..." is evaluated after each preset has been placed (before the shot) and its result printed,
 //       SHOT_TOGGLE="..." (+ SHOT_TOGGLE_BACK) shoots every view twice, with that switch thrown for the second shot (<name>_b.png).
@@ -254,6 +255,7 @@ try {
   await send('Page.enable');
   if (CONSOLE) { await send('Runtime.enable'); await send('Log.enable'); }
   await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: +(process.env.SHOT_DPR || 1), mobile: false });
+  if (process.env.SHOT_EARLY) await send('Page.addScriptToEvaluateOnNewDocument', { source: process.env.SHOT_EARLY });        // (before any page script: hooks that must see the whole start-up)
   await send('Page.navigate', { url: `${process.env.SHOT_URL || `http://127.0.0.1:${port}/`}?autostart&voice=off${process.env.SHOT_DYN ? '' : '&dynres=off'}${query ? '&' + query : ''}` });
   await sleep(+waitSec * 1000);
   await ev(HELPERS);
